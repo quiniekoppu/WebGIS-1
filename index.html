@@ -159,6 +159,12 @@
     <div id="info-body"></div>
   </div>
 
+  <div id="upload-form">
+    <input type="text" id="point-name" placeholder="Tên địa điểm">
+    <input type="file" id="image-input" accept="image/*">
+    <button onclick="handleUpload()">Lưu địa điểm & Ảnh</button>
+</div>
+
   <!-- Leaflet JS -->
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <!-- Leaflet Draw -->
@@ -175,13 +181,6 @@
   <script src="js/search.js"></script>
   <script src="js/upload.js"></script>
   <script src="js/ui.js"></script>
-
-  <div id="upload-form">
-    <input type="text" id="point-name" placeholder="Tên địa điểm">
-    <input type="file" id="image-input" accept="image/*">
-    <button onclick="handleUpload()">Lưu địa điểm & Ảnh</button>
-</div>
-
 
 </body>
 </html>
