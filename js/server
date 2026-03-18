@@ -1,0 +1,30 @@
+// server.js
+const express = require('express');
+const db = require('./db');
+const app = express();
+
+app.get('/api/locations', async (req, res) => {
+  try {
+    // Truy vấn chuyển đổi hình học sang GeoJSON
+    const result = await db.query(
+      'SELECT id, name, ST_AsGeoJSON(geom) as geometry FROM locations'
+    );
+    
+    // Trả về định dạng GeoJSON chuẩn
+    const geojson = {
+      type: "FeatureCollection",
+      features: result.rows.map(row => ({
+        type: "Feature",
+        properties: { id: row.id, name: row.name },
+        geometry: JSON.parse(row.geometry)
+      }))
+    };
+    
+    res.json(geojson);
+  } catch (err) {
+    console.error(err);
+    res.status(500).send("Server Error");
+  }
+});
+
+app.listen(3000, () => console.log('Server running on port 3000'));

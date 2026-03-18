@@ -1,0 +1,5 @@
+DB_USER=postgres
+DB_HOST=localhost
+DB_NAME=mapvn_db
+DB_PASSWORD= Quyen24122003*
+DB_PORT=2412
