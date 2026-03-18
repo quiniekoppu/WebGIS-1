@@ -1,0 +1,78 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [105.8342, 21.0278]
+      },
+      "properties": {
+        "name": "Hà Nội",
+        "type": "Thủ đô",
+        "population": "8,000,000",
+        "country": "Việt Nam"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [106.6297, 10.8231]
+      },
+      "properties": {
+        "name": "TP. Hồ Chí Minh",
+        "type": "Thành phố",
+        "population": "9,000,000",
+        "country": "Việt Nam"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [108.2022, 16.0544]
+      },
+      "properties": {
+        "name": "Đà Nẵng",
+        "type": "Thành phố",
+        "population": "1,200,000",
+        "country": "Việt Nam"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [105.8342, 21.0278],
+          [108.2022, 16.0544],
+          [106.6297, 10.8231]
+        ]
+      },
+      "properties": {
+        "name": "Trục Bắc - Nam",
+        "type": "Tuyến đường",
+        "length_km": "1760"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[
+          [105.0, 20.0],
+          [107.0, 20.0],
+          [107.0, 22.0],
+          [105.0, 22.0],
+          [105.0, 20.0]
+        ]]
+      },
+      "properties": {
+        "name": "Vùng miền Bắc",
+        "type": "Vùng",
+        "area_km2": "~44000"
+      }
+    }
+  ]
+}
