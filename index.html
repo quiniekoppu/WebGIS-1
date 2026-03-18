@@ -22,7 +22,7 @@
   <div id="sidebar">
     <div class="sidebar-header">
       <div class="logo">
-        <i class="fa-solid fa-globe"></i>
+        <i class="fa-solid fa-globe"></i>git init
         <span>WebGIS</span>
       </div>
       <button id="sidebar-toggle" title="Thu/mở sidebar">
@@ -175,5 +175,13 @@
   <script src="js/search.js"></script>
   <script src="js/upload.js"></script>
   <script src="js/ui.js"></script>
+
+  <div id="upload-form">
+    <input type="text" id="point-name" placeholder="Tên địa điểm">
+    <input type="file" id="image-input" accept="image/*">
+    <button onclick="handleUpload()">Lưu địa điểm & Ảnh</button>
+</div>
+
+
 </body>
 </html>
