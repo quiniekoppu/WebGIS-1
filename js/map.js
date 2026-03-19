@@ -80,17 +80,59 @@ async function loadSavedLayers() {
 }
 
 async function syncDataFromDatabase() {
-    // 1. Tải các đối tượng tự vẽ
-    const { data: features } = await supabaseClient.from('web_map_features').select('*');
-    if (features) {
+    // 1. Tải các đối tượng tự vẽ & bóc tách từ DB
+    const { data: features, error: featError } = await supabaseClient
+        .from('web_map_features')
+        .select('*')
+        .order('id', { ascending: true }); // Sắp xếp theo ID cũ đến mới
+
+    if (featError) {
+        console.error("❌ Lỗi tải dữ liệu features:", featError);
+    } else if (features) {
         features.forEach(f => {
-            L.geoJSON(f.geojson).bindPopup(`<b>${f.name}</b>`).addTo(map);
+            try {
+                // Biến đổi GeoJSON thành Layer của Leaflet
+                const layerGroup = L.geoJSON(f.geojson, {
+                    style: { color: CONFIG.drawColors?.stroke || '#3388ff', weight: 3, fillOpacity: 0.2 },
+                    pointToLayer: (feature, latlng) => L.circleMarker(latlng, { 
+                        radius: 6, color: 'white', weight: 2, fillColor: '#e53e3e', fillOpacity: 1 
+                    })
+                });
+
+                // L.geoJSON trả về 1 Group, ta cần bóc tách từng lớp (layer) bên trong ra
+                layerGroup.eachLayer(layer => {
+                    // 1. Thêm vào nhóm đối tượng vẽ trên map
+                    drawnItems.addLayer(layer);
+                    
+                    // 2. Gắn Popup thông tin
+                    layer.bindPopup(`<strong>${f.name}</strong><br><em>ID: #${f.id}</em>`);
+
+                    // 3. Đồng bộ vào biến quản lý bộ nhớ (Dùng ID của database)
+                    const dbId = f.id;
+                    featureMap[dbId] = layer;
+
+                    // 4. In ra giao diện Sidebar Catalog (Dùng hàm đã có ở tools.js)
+                    if (typeof addFeatureToList === 'function') {
+                        addFeatureToList(dbId, f.feature_type, f.name);
+                    }
+
+                    // 5. Đồng bộ biến đếm featureCount để khi vẽ tiếp không bị trùng ID
+                    if (typeof featureCount !== 'undefined' && dbId > featureCount) {
+                        featureCount = dbId;
+                    }
+                });
+            } catch (err) {
+                console.error("Lỗi xử lý hiển thị đối tượng ID:", f.id, err);
+            }
         });
+        console.log(`✅ Đã đồng bộ ${features.length} đối tượng vào Catalog.`);
     }
 
     // 2. Tải các đối tượng điểm kèm ảnh/video thực địa
-    const { data: points } = await supabaseClient.from('web_map_points').select('*');
-    if (points) {
+    const { data: points, error: pointError } = await supabaseClient.from('web_map_points').select('*');
+    if (pointError) {
+        console.error("❌ Lỗi tải dữ liệu points:", pointError);
+    } else if (points) {
         points.forEach(p => {
             try {
                 // Chuyển 'POINT(lng lat)' sang [lat, lng]
@@ -99,23 +141,12 @@ async function syncDataFromDatabase() {
                 
                 let mediaHTML = '';
                 if (p.image_url) {
-                    // SỬA LỖI: Thuật toán nhận diện Ảnh hay Video
+                    // Phân biệt Video và Ảnh
                     const isVideo = p.image_url.match(/\.(mp4|webm|ogg)$/i) || p.image_url.includes('/video/upload/');
-                    
                     if (isVideo) {
-                        // Trả về thẻ Video nếu là video
-                        mediaHTML = `
-                            <br>
-                            <video src="${p.image_url}" width="200" controls autoplay muted style="border-radius:6px; margin-top:8px;">
-                                Trình duyệt của bạn không hỗ trợ video.
-                            </video>
-                        `;
+                        mediaHTML = `<br><video src="${p.image_url}" width="200" controls muted style="border-radius:6px; margin-top:8px;"></video>`;
                     } else {
-                        // Trả về thẻ Img nếu là ảnh
-                        mediaHTML = `
-                            <br>
-                            <img src="${p.image_url}" width="200" style="border-radius:6px; margin-top:8px;">
-                        `;
+                        mediaHTML = `<br><img src="${p.image_url}" width="200" style="border-radius:6px; margin-top:8px;">`;
                     }
                 }
                 
@@ -124,15 +155,13 @@ async function syncDataFromDatabase() {
                         <b style="font-size: 1.1em; color: #2d3748;">${p.name}</b>
                         ${mediaHTML}
                     </div>
-                `, { maxWidth: 220 }); // Set maxWidth để popup không bị vỡ giao diện
+                `, { maxWidth: 220 });
 
             } catch (err) {
-                console.error("Lỗi parse điểm:", p, err);
+                console.error("Lỗi parse điểm chụp:", p, err);
             }
         });
-    }
-}
-
+    }}
 // Gọi hàm sau khi map khởi tạo xong
 syncDataFromDatabase();
 // Bạn có thể mở comment dòng dưới nếu muốn tự động load cả các Layer Raster/Vector đã lưu
