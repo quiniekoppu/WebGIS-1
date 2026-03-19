@@ -50,7 +50,7 @@ const CONFIG = {
 
 const SUPABASE_URL = "https://db.nhvbplfxdojltzyhmkum.supabase.co"; 
 const SUPABASE_KEY = "nhvbplfxdojltzyhmkum";
-const CLOUDINARY_NAME = "CLOUDINARY_URL=cloudinary://<your_api_key>:<your_api_secret>@dqrzclry3";
+const CLOUDINARY_NAME = "Quiin";
 const CLOUDINARY_PRESET = "webgis_uploads";
 
 

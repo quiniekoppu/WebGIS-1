@@ -27,9 +27,13 @@ const opacityVal = document.getElementById('opacity-val');
 // ======================================================
 // 3. VECTOR - XỬ LÝ GEOJSON
 // ======================================================
+// --- CẬP NHẬT TRONG EVENT LISTENER CỦA VECTOR ---
 geojsonInput.addEventListener('change', function(e) {
-  const file = e.target.files[0];
-  if (!file) return;
+    const file = e.target.files[0];
+    if (!file) return;
+
+    // Bổ sung: Gọi hàm lưu trữ
+    saveLayerToSupabase(file, 'vector');
 
   if (!file.name.match(/\.(geojson|json)$/i)) {
     uploadInfo.innerHTML = '<span style="color:#e53e3e">⚠ Chỉ hỗ trợ file .geojson hoặc .json</span>';
@@ -91,12 +95,15 @@ rasterInput.addEventListener('change', async function(e) {
     rasterInfo.innerHTML = '<span style="color:#e53e3e">⚠ Chỉ hỗ trợ file .tif hoặc .tiff</span>';
     return;
   }
-
+  // Bổ sung: Lưu trữ Raster kèm theo tọa độ bao (bounds) để lần sau hiển thị lại đúng vị trí
+    const bbox = image.getBoundingBox(); // Lấy từ logic đọc TIFF hiện tại của bạn
+    saveLayerToSupabase(file, 'raster', { bbox: bbox });
+    });
   rasterInfo.innerHTML = `<div style="color:#718096;font-size:0.78rem">⏳ Đang xử lý <strong>${file.name}</strong>...</div>`;
 
   try {
     const arrayBuffer = await file.arrayBuffer();
-    
+
     // Xóa raster cũ
     if (currentRasterLayer) map.removeLayer(currentRasterLayer);
 
@@ -164,8 +171,7 @@ rasterInput.addEventListener('change', async function(e) {
     rasterInfo.innerHTML = `<span style="color:#e53e3e">⚠ Lỗi: ${err.message}</span>`;
   }
   this.value = '';
-});
-
+   
 // Điều khiển Opacity & Xóa Raster
 rasterOpacity.addEventListener('input', function() {
   const val = parseFloat(this.value);
@@ -290,26 +296,4 @@ async function saveLayerToSupabase(file, type, metadata = {}) {
         console.error("Lỗi lưu trữ:", err.message);
     }
 }
-
-// --- CẬP NHẬT TRONG EVENT LISTENER CỦA VECTOR ---
-geojsonInput.addEventListener('change', function(e) {
-    const file = e.target.files[0];
-    if (!file) return;
     
-    // ... (Giữ nguyên code hiển thị cũ của bạn) ...
-
-    // Bổ sung: Gọi hàm lưu trữ
-    saveLayerToSupabase(file, 'vector');
-});
-
-// --- CẬP NHẬT TRONG EVENT LISTENER CỦA RASTER ---
-rasterInput.addEventListener('change', async function(e) {
-    const file = e.target.files[0];
-    if (!file) return;
-
-    // ... (Giữ nguyên code hiển thị cũ của bạn) ...
-
-    // Bổ sung: Lưu trữ Raster kèm theo tọa độ bao (bounds) để lần sau hiển thị lại đúng vị trí
-    const bbox = image.getBoundingBox(); // Lấy từ logic đọc TIFF hiện tại của bạn
-    saveLayerToSupabase(file, 'raster', { bbox: bbox });
-});
