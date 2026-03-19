@@ -49,6 +49,17 @@ const CONFIG = {
 };
 
 const SUPABASE_URL = "https://db.nhvbplfxdojltzyhmkum.supabase.co"; 
-const SUPABASE_KEY = "DÁN_ANON_KEY_CỦA_BẠN_VÀO_ĐÂY";
-const CLOUDINARY_NAME = "DÁN_CLOUD_NAME_VÀO_ĐÂY";
+const SUPABASE_KEY = "nhvbplfxdojltzyhmkum";
+const CLOUDINARY_NAME = "CLOUDINARY_URL=cloudinary://<your_api_key>:<your_api_secret>@dqrzclry3";
 const CLOUDINARY_PRESET = "webgis_uploads";
+
+
+// Khởi tạo Supabase Client
+const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
+
+if (supabase) {
+    console.log("✅ Supabase Library đã được nhúng thành công!");
+    console.log("Client object:", supabase);
+} else {
+    console.error("❌ Lỗi nhúng thư viện Supabase.");
+}
