@@ -5,20 +5,15 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>WebGIS App - Leaflet.js</title>
 
-  <!-- Leaflet CSS -->
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-  <!-- Leaflet Draw -->
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.css" />
-  <!-- Font Awesome -->
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
-  <!-- Google Fonts -->
   <link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
 
   <link rel="stylesheet" href="css/style.css" />
 </head>
 <body>
 
-  <!-- SIDEBAR -->
   <div id="sidebar">
     <div class="sidebar-header">
       <div class="logo">
@@ -30,7 +25,6 @@
       </button>
     </div>
     
-    <!-- SEARCH -->
     <div class="sidebar-section">
       <div class="section-title"><i class="fa-solid fa-magnifying-glass"></i> Tìm kiếm địa điểm</div>
       <div class="search-box">
@@ -40,7 +34,6 @@
       <div id="search-results"></div>
     </div>
 
-    <!-- LAYERS -->
     <div class="sidebar-section">
       <div class="section-title"><i class="fa-solid fa-layer-group"></i> Lớp bản đồ nền</div>
       <div class="basemap-grid">
@@ -63,7 +56,6 @@
       </div>
     </div>
 
-    <!-- TOOLS -->
     <div class="sidebar-section">
       <div class="section-title"><i class="fa-solid fa-wrench"></i> Công cụ vẽ</div>
       <div class="tools-grid">
@@ -88,11 +80,9 @@
       </div>
     </div>
 
-    <!-- UPLOAD DATA -->
     <div class="sidebar-section">
       <div class="section-title"><i class="fa-solid fa-file-import"></i> Upload dữ liệu</div>
 
-      <!-- Tab switch -->
       <div class="upload-tabs">
         <button class="upload-tab active" data-tab="vector">
           <i class="fa-solid fa-vector-square"></i> Vector
@@ -102,7 +92,6 @@
         </button>
       </div>
 
-      <!-- Vector tab -->
       <div class="upload-tab-content" id="tab-vector">
         <label class="upload-btn">
           <i class="fa-solid fa-upload"></i> Chọn file GeoJSON / JSON
@@ -111,7 +100,6 @@
         <div id="upload-info"></div>
       </div>
 
-      <!-- Raster tab -->
       <div class="upload-tab-content hidden" id="tab-raster">
         <label class="upload-btn raster-btn">
           <i class="fa-solid fa-layer-group"></i> Chọn file GeoTIFF (.tif)
@@ -119,7 +107,6 @@
         </label>
         <div id="raster-info"></div>
 
-        <!-- Opacity slider -->
         <div id="raster-controls" class="hidden">
           <div class="opacity-row">
             <label>Độ trong suốt:</label>
@@ -133,24 +120,20 @@
       </div>
     </div>
 
-    <!-- FEATURES LIST -->
     <div class="sidebar-section">
       <div class="section-title"><i class="fa-solid fa-list"></i> Đối tượng đã vẽ</div>
       <div id="features-list"><p class="empty-msg">Chưa có đối tượng nào</p></div>
     </div>
   </div>
 
-  <!-- MAP -->
   <div id="map"></div>
 
-  <!-- STATUS BAR -->
   <div id="status-bar">
     <span id="coords">📍 Di chuột lên bản đồ để xem tọa độ</span>
     <span id="zoom-level">Zoom: 5</span>
     <span id="measure-result"></span>
   </div>
 
-  <!-- INFO PANEL (popup thông tin) -->
   <div id="info-panel" class="hidden">
     <div class="info-header">
       <span id="info-title">Thông tin</span>
@@ -160,24 +143,20 @@
   </div>
 
   <div id="upload-form">
-    <input type="text" id="point-name" placeholder="Tên địa điểm">
-    <input type="file" id="image-input" accept="image/*">
-    <button onclick="handleUpload()">Lưu địa điểm & Ảnh</button>
-</div>
+      <input type="text" id="point-name" placeholder="Tên địa điểm">
+      <input type="file" id="image-input" accept="image/*">
+      <button onclick="handleUpload()">Lưu địa điểm & Ảnh</button>
+  </div>
 
-<!-- Leaflet JS -->
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-  <!-- Leaflet Draw -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.js"></script>
-  <!-- GeoTIFF.js thuần (stable, không cần georaster wrapper) -->
-  <script src="https://cdn.jsdelivr.net/npm/geotiff@2.1.3/dist-browser/geotiff.js"></script>
-  <!-- Proj4js (reproject sang WGS84) -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/proj4js/2.9.0/proj4.js"></script>
-  
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/geotiff@2.1.3/dist-browser/geotiff.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/proj4js/2.9.0/proj4.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
   <script src="js/config.js"></script>
   <script src="js/map.js"></script>
+
   <script src="js/layers.js"></script>
   <script src="js/tools.js"></script>
   <script src="js/search.js"></script>
