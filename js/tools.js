@@ -117,6 +117,27 @@ map.on(L.Draw.Event.CREATED, async function (e) {
     
     drawnItems.addLayer(layer);
 
+    // Xử lý Popup thông tin (Đã được đưa vào TRONG hàm)
+    let info = `<strong>${getTypeLabel(type)} #${id}</strong><br/>`;
+    
+    if (type === 'polyline') {
+      const dist = calculatePolylineLength(layer);
+      info += `Độ dài: <b>${formatDistance(dist)}</b>`;
+    } else if (type === 'polygon') {
+      const area = L.GeometryUtil.geodesicArea(layer.getLatLngs()[0]);
+      info += `Diện tích: <b>${formatArea(area)}</b>`;
+    } else if (type === 'circle') {
+      const r = layer.getRadius();
+      info += `Bán kính: <b>${formatDistance(r)}</b>`;
+    }
+
+    layer.bindPopup(info);
+    layer.openPopup();
+
+    featureMap[id] = layer;
+    addFeatureToList(id, type, `${getTypeLabel(type)} #${id}`);
+    deactivateAllTools();
+
     // THUẬT TOÁN BỔ SUNG: Lưu vào Database
     const featureData = {
         name: `Đối tượng ${type} mới`,
@@ -133,29 +154,7 @@ map.on(L.Draw.Event.CREATED, async function (e) {
     } catch (err) {
         console.error("❌ Lỗi lưu đối tượng:", err);
     }
-});
-
-  // Popup thông tin
-  let info = `<strong>${getTypeLabel(type)} #${id}</strong><br/>`;
-  if (type === 'polyline') {
-    const dist = calculatePolylineLength(layer);
-    info += `Độ dài: <b>${formatDistance(dist)}</b>`;
-  } else if (type === 'polygon') {
-    const area = L.GeometryUtil.geodesicArea(layer.getLatLngs()[0]);
-    info += `Diện tích: <b>${formatArea(area)}</b>`;
-  } else if (type === 'circle') {
-    const r = layer.getRadius();
-    info += `Bán kính: <b>${formatDistance(r)}</b>`;
-  }
-
-  layer.bindPopup(info);
-  layer.addTo(drawnItems);
-  layer.openPopup();
-
-  featureMap[id] = layer;
-  addFeatureToList(id, type, `${getTypeLabel(type)} #${id}`);
-  deactivateAllTools();
-
+}); // <-- Dấu đóng hàm được đưa xuống cuối cùng cho đúng cấu trúc
 
 // -------- MEASURE --------
 let measurePolyline = null;

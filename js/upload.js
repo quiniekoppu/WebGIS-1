@@ -1,4 +1,4 @@
-// ===== UPLOAD.JS - Upload Vector (GeoJSON) + Raster (GeoTIFF) + Image to Cloud =====
+// ===== UPLOAD.JS - Upload Vector (GeoJSON) + Raster (GeoTIFF) + Image/Video to Cloud =====
 
 // 1. -------- QUẢN LÝ TAB UPLOAD --------
 document.querySelectorAll('.upload-tab').forEach(tab => {
@@ -196,7 +196,7 @@ document.getElementById('raster-remove-btn').addEventListener('click', function(
 });
 
 // ======================================================
-// 5. CLOUD UPLOAD - LƯU ĐỊA ĐIỂM & ẢNH (CLOUDINARY + SUPABASE)
+// 5. CLOUD UPLOAD - LƯU ĐỊA ĐIỂM & ẢNH/VIDEO (CLOUDINARY + SUPABASE)
 // ======================================================
 async function handleUpload() {
     const name = document.getElementById('point-name').value;
@@ -204,21 +204,28 @@ async function handleUpload() {
     const file = fileInput.files[0];
     const btn = document.querySelector("#upload-form button");
 
-    if (!name || !file) return alert("Vui lòng điền tên và chọn ảnh!");
+    if (!name || !file) return alert("Vui lòng điền tên và chọn file!");
 
     btn.innerText = "Đang lưu...";
     btn.disabled = true;
 
     try {
-        // A. Tải ảnh lên Cloudinary
+        // A. Tải file lên Cloudinary
         const formData = new FormData();
         formData.append('file', file);
         formData.append('upload_preset', CLOUDINARY_PRESET);
 
-        const cloudRes = await fetch(`https://api.cloudinary.com/v1_1/${CLOUDINARY_NAME}/image/upload`, {
+        // THAY ĐỔI: Sử dụng 'auto/upload' thay vì 'image/upload' để tự động hỗ trợ Video và Ảnh
+        const cloudRes = await fetch(`https://api.cloudinary.com/v1_1/${CLOUDINARY_NAME}/auto/upload`, {
             method: 'POST', body: formData
         });
+        
         const cloudData = await cloudRes.json();
+
+        // Bổ sung: Báo lỗi nếu Cloudinary từ chối upload (sai preset, file quá nặng,...)
+        if (!cloudRes.ok) {
+            throw new Error(cloudData.error?.message || "Lỗi khi upload lên Cloudinary");
+        }
 
         // B. Lưu thông tin vào bảng 'web_map_points' trong Supabase
         const center = map.getCenter();
@@ -231,7 +238,7 @@ async function handleUpload() {
             },
             body: JSON.stringify({
                 name: name,
-                image_url: cloudData.secure_url,
+                image_url: cloudData.secure_url, // Vẫn lưu vào cột image_url, nhưng lúc này link có thể là ảnh hoặc video
                 geom: `POINT(${center.lng} ${center.lat})`
             })
         });
@@ -240,13 +247,13 @@ async function handleUpload() {
             alert("Lưu thành công!");
             location.reload();
         } else {
-            throw new Error("Không thể lưu vào database");
+            throw new Error("Không thể lưu vào database Supabase");
         }
     } catch (err) {
         alert("Lỗi: " + err.message);
         console.error(err);
     } finally {
-        btn.innerText = "Lưu địa điểm & Ảnh";
+        btn.innerText = "Lưu địa điểm & File";
         btn.disabled = false;
     }
 }
