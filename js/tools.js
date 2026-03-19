@@ -110,6 +110,7 @@ function deactivateAllTools() {
 }
 
 // -------- DRAW EVENTS --------
+// -------- DRAW EVENTS --------
 map.on(L.Draw.Event.CREATED, async function (e) {
     const id = ++featureCount;
     const type = e.layerType;
@@ -117,8 +118,19 @@ map.on(L.Draw.Event.CREATED, async function (e) {
     
     drawnItems.addLayer(layer);
 
-    // Xử lý Popup thông tin (Đã được đưa vào TRONG hàm)
-    let info = `<strong>${getTypeLabel(type)} #${id}</strong><br/>`;
+    // --- [NÂNG CẤP 1] Yêu cầu người dùng nhập tên trước khi lưu ---
+    let featureName = window.prompt(`Nhập tên cho đối tượng ${getTypeLabel(type)} vừa vẽ:`, `Đối tượng ${type} mới`);
+    
+    // Nếu người dùng bấm Cancel, bỏ qua không lưu
+    if (featureName === null) {
+        drawnItems.removeLayer(layer); // Xóa hình vừa vẽ khỏi bản đồ
+        return; 
+    }
+    // Nếu để trống tên, dùng tên mặc định
+    if (featureName.trim() === "") featureName = `Đối tượng ${type} mới`;
+
+    // Cập nhật Popup với tên vừa nhập
+    let info = `<strong>${featureName}</strong><br/>`;
     
     if (type === 'polyline') {
       const dist = calculatePolylineLength(layer);
@@ -135,12 +147,12 @@ map.on(L.Draw.Event.CREATED, async function (e) {
     layer.openPopup();
 
     featureMap[id] = layer;
-    addFeatureToList(id, type, `${getTypeLabel(type)} #${id}`);
+    addFeatureToList(id, type, featureName); // Đưa tên lên danh sách sidebar
     deactivateAllTools();
 
-    // THUẬT TOÁN BỔ SUNG: Lưu vào Database
+    // --- [NÂNG CẤP 2] Lưu vào Database với tên chuẩn ---
     const featureData = {
-        name: `Đối tượng ${type} mới`,
+        name: featureName,
         feature_type: type,
         geojson: layer.toGeoJSON()
     };
@@ -150,11 +162,18 @@ map.on(L.Draw.Event.CREATED, async function (e) {
             .from('web_map_features')
             .insert([featureData]);
         
-        if (!error) console.log("✅ Đã lưu đối tượng vẽ vào DB");
+        if (!error) {
+            console.log("✅ Đã lưu đối tượng vẽ vào DB");
+            // Hiển thị thông báo nhỏ nếu bạn có hàm showNotification
+            if (typeof showNotification === 'function') showNotification('Đã lưu vào cơ sở dữ liệu!');
+        } else {
+            throw error;
+        }
     } catch (err) {
         console.error("❌ Lỗi lưu đối tượng:", err);
+        alert("Lỗi: Không thể lưu đối tượng vào CSDL.");
     }
-}); // <-- Dấu đóng hàm được đưa xuống cuối cùng cho đúng cấu trúc
+});
 
 // -------- MEASURE --------
 let measurePolyline = null;

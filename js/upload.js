@@ -26,6 +26,9 @@ const opacityVal = document.getElementById('opacity-val');
 // ======================================================
 // 3. VECTOR - XỬ LÝ GEOJSON
 // ======================================================
+// ======================================================
+// 3. VECTOR - XỬ LÝ GEOJSON (ĐÃ NÂNG CẤP BÓC TÁCH DB)
+// ======================================================
 geojsonInput.addEventListener('change', function(e) {
     const file = e.target.files[0];
     if (!file) return;
@@ -35,14 +38,46 @@ geojsonInput.addEventListener('change', function(e) {
         return;
     }
 
-    // Gọi hàm lưu trữ bền vững vào Supabase
+    // Vẫn lưu trữ nguyên file gốc lên Storage (backup)
     saveLayerToSupabase(file, 'vector');
 
     const reader = new FileReader();
-    reader.onload = function(ev) {
+    // THAY ĐỔI: Thêm async vào đây để dùng được await Supabase
+    reader.onload = async function(ev) {
         try {
             const geojson = JSON.parse(ev.target.result);
             if (uploadedVectorLayer) map.removeLayer(uploadedVectorLayer);
+
+            // --- [NÂNG CẤP MỚI] THUẬT TOÁN BÓC TÁCH LƯU VÀO DB ---
+            if (geojson.features && geojson.features.length > 0) {
+                const confirmSave = confirm(`Tìm thấy ${geojson.features.length} đối tượng trong file này. Bạn có muốn bóc tách và lưu tất cả vào Database không?`);
+                
+                if (confirmSave) {
+                    uploadInfo.innerHTML = `<div style="color:#d69e2e;font-size:0.8rem">⏳ Đang xử lý lưu ${geojson.features.length} đối tượng...</div>`;
+                    
+                    // Tạo mảng dữ liệu để Bulk Insert (Thêm nhiều dòng cùng lúc)
+                    const insertData = geojson.features.map((feat, index) => {
+                        // Ưu tiên lấy tên từ Properties (VD: cột 'Name', 'Ten', 'MaDat'...)
+                        const props = feat.properties || {};
+                        const featureName = props.Name || props.name || props.Ten || props.id || `Đối tượng từ ${file.name} (#${index+1})`;
+                        
+                        return {
+                            name: featureName,
+                            feature_type: feat.geometry.type,
+                            geojson: feat
+                        };
+                    });
+
+                    // Gọi lệnh Insert vào Supabase
+                    const { error } = await supabaseClient
+                        .from('web_map_features')
+                        .insert(insertData);
+
+                    if (error) throw error;
+                    console.log(`✅ Đã bóc tách và lưu ${geojson.features.length} đối tượng vào DB.`);
+                }
+            }
+            // --- KẾT THÚC PHẦN NÂNG CẤP ---
 
             let featureCount = 0;
             uploadedVectorLayer = L.geoJSON(geojson, {
@@ -67,13 +102,14 @@ geojsonInput.addEventListener('change', function(e) {
             const bounds = uploadedVectorLayer.getBounds();
             if (bounds.isValid()) map.fitBounds(bounds, { padding: [30, 30] });
 
-            uploadInfo.innerHTML = `<div style="color:#38a169;font-size:0.8rem">✅ <strong>${file.name}</strong> (${featureCount} đối tượng)</div>`;
+            uploadInfo.innerHTML = `<div style="color:#38a169;font-size:0.8rem">✅ <strong>${file.name}</strong> (${featureCount} đối tượng) - Đã đồng bộ DB</div>`;
         } catch (err) {
-            uploadInfo.innerHTML = '<span style="color:#e53e3e">⚠ File JSON không hợp lệ</span>';
+            console.error(err);
+            uploadInfo.innerHTML = '<span style="color:#e53e3e">⚠ Lỗi khi xử lý file JSON hoặc Lưu DB</span>';
         }
     };
     reader.readAsText(file);
-    this.value = '';
+    this.value = ''; // Xóa input sau khi load xong
 });
 
 // ======================================================
