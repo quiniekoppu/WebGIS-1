@@ -47,3 +47,8 @@ const CONFIG = {
   // Nominatim search API
   searchApi: 'https://nominatim.openstreetmap.org/search'
 };
+
+const SUPABASE_URL = "https://db.nhvbplfxdojltzyhmkum.supabase.co"; 
+const SUPABASE_KEY = "DÁN_ANON_KEY_CỦA_BẠN_VÀO_ĐÂY";
+const CLOUDINARY_NAME = "DÁN_CLOUD_NAME_VÀO_ĐÂY";
+const CLOUDINARY_PRESET = "webgis_uploads";
