@@ -47,9 +47,10 @@ const CONFIG = {
   // Nominatim search API
   searchApi: 'https://nominatim.openstreetmap.org/search'
 };
-
+//NEXT_PUBLIC_SUPABASE_URL=https://nhvbplfxdojltzyhmkum.supabase.co
+//NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY=sb_publishable_JOTgs2SmN_Z9S5hZvVOP4A_ogUiCC1U
 const SUPABASE_URL = "https://nhvbplfxdojltzyhmkum.supabase.co";
-const SUPABASE_KEY = "Quiin's Project";
+const SUPABASE_KEY = "sb_publishable_JOTgs2SmN_Z9S5hZvVOP4A_ogUiCC1U";
 const CLOUDINARY_NAME = "Quiin";
 const CLOUDINARY_PRESET = "webgis_uploads";
 
