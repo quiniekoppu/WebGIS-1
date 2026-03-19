@@ -52,11 +52,9 @@ const SUPABASE_URL = "https://db.nhvbplfxdojltzyhmkum.supabase.co";
 const SUPABASE_KEY = "nhvbplfxdojltzyhmkum";
 const CLOUDINARY_NAME = "Quiin";
 const CLOUDINARY_PRESET = "webgis_uploads";
-
-
+  
 // Khởi tạo Supabase Client
-const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
-
+var supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 if (supabase) {
     console.log("✅ Supabase Library đã được nhúng thành công!");
     console.log("Client object:", supabase);
