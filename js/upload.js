@@ -35,7 +35,7 @@ geojsonInput.addEventListener('change', function(e) {
         return;
     }
 
-    // Gọi hàm lưu trữ bền vững
+    // Gọi hàm lưu trữ bền vững vào Supabase
     saveLayerToSupabase(file, 'vector');
 
     const reader = new FileReader();
@@ -93,10 +93,12 @@ rasterInput.addEventListener('change', async function(e) {
     try {
         const arrayBuffer = await file.arrayBuffer();
         const tiff = await GeoTIFF.fromArrayBuffer(arrayBuffer);
-        const image = await tiff.getImage(); // Khởi tạo image trước khi dùng bbox
-
-        // Bổ sung: Lưu trữ Raster kèm theo tọa độ bao
+        const image = await tiff.getImage(); 
+        
+        // Lấy tọa độ bao (Bounding Box)
         const bbox = image.getBoundingBox();
+        
+        // Gọi hàm lưu trữ bền vững vào Supabase (kèm bbox metadata)
         saveLayerToSupabase(file, 'raster', { bbox: bbox });
 
         const width = image.getWidth();
@@ -108,12 +110,13 @@ rasterInput.addEventListener('change', async function(e) {
         let [minX, minY, maxX, maxY] = bbox;
         const epsgCode = geoKeys.ProjectedCSTypeGeoKey || geoKeys.GeographicTypeGeoKey || 4326;
 
+        // Chuyển đổi hệ tọa độ nếu không phải WGS84 (EPSG:4326)
         if (epsgCode !== 4326 && typeof proj4 !== 'undefined') {
             try {
                 const sw = proj4(`EPSG:${epsgCode}`, 'EPSG:4326', [minX, minY]);
                 const ne = proj4(`EPSG:${epsgCode}`, 'EPSG:4326', [maxX, maxY]);
                 minX = sw[0]; minY = sw[1]; maxX = ne[0]; maxY = ne[1];
-            } catch(e) { console.warn('Reproject failed:', e); }
+            } catch(err) { console.warn('Reproject failed, using raw bbox:', err); }
         }
 
         const bounds = [[minY, minX], [maxY, maxX]];
@@ -121,35 +124,49 @@ rasterInput.addEventListener('change', async function(e) {
         if (currentRasterLayer) map.removeLayer(currentRasterLayer);
 
         const canvas = document.createElement('canvas');
-        canvas.width = width; canvas.height = height;
+        canvas.width = width; 
+        canvas.height = height;
         const ctx = canvas.getContext('2d');
         const imgData = ctx.createImageData(width, height);
         const pixels = imgData.data;
         const noDataVal = image.getGDALNoData();
 
+        // Xử lý hiển thị Raster (RGB hoặc Single Band)
         if (nBands >= 3) {
             const [r, g, b, a] = rasters;
             for (let i = 0; i < width * height; i++) {
                 const idx = i * 4;
-                pixels[idx] = r[i]; pixels[idx+1] = g[i]; pixels[idx+2] = b[i];
+                pixels[idx] = r[i]; 
+                pixels[idx+1] = g[i]; 
+                pixels[idx+2] = b[i];
                 pixels[idx+3] = a ? a[i] : (noDataVal !== null && r[i] === noDataVal ? 0 : 255);
             }
         } else {
             const band = rasters[0];
-            let min = Math.min(...band.filter(v => v !== noDataVal)), max = Math.max(...band.filter(v => v !== noDataVal));
+            let filteredValues = Array.from(band).filter(v => v !== noDataVal && !isNaN(v));
+            let min = Math.min(...filteredValues);
+            let max = Math.max(...filteredValues);
             const range = max - min || 1;
+            
             for (let i = 0; i < width * height; i++) {
                 const idx = i * 4;
-                if (band[i] === noDataVal || isNaN(band[i])) { pixels[idx+3] = 0; continue; }
+                if (band[i] === noDataVal || isNaN(band[i])) { 
+                    pixels[idx+3] = 0; 
+                    continue; 
+                }
                 const t = (band[i] - min) / range;
                 const col = viridisColor(t);
-                pixels[idx] = col[0]; pixels[idx+1] = col[1]; pixels[idx+2] = col[2]; pixels[idx+3] = 220;
+                pixels[idx] = col[0]; 
+                pixels[idx+1] = col[1]; 
+                pixels[idx+2] = col[2]; 
+                pixels[idx+3] = 220; // Độ đục mặc định cho single band
             }
         }
 
         ctx.putImageData(imgData, 0, 0);
         currentRasterLayer = L.imageOverlay(canvas.toDataURL(), bounds, {
-            opacity: parseFloat(rasterOpacity.value), interactive: false
+            opacity: parseFloat(rasterOpacity.value), 
+            interactive: false
         }).addTo(map);
 
         map.fitBounds(bounds);
@@ -157,6 +174,7 @@ rasterInput.addEventListener('change', async function(e) {
         rasterControls.classList.remove('hidden');
 
     } catch (err) {
+        console.error(err);
         rasterInfo.innerHTML = `<span style="color:#e53e3e">⚠ Lỗi: ${err.message}</span>`;
     }
     this.value = '';
@@ -178,7 +196,7 @@ document.getElementById('raster-remove-btn').addEventListener('click', function(
 });
 
 // ======================================================
-// 5. CLOUD UPLOAD - LƯU ĐỊA ĐIỂM & ẢNH
+// 5. CLOUD UPLOAD - LƯU ĐỊA ĐIỂM & ẢNH (CLOUDINARY + SUPABASE)
 // ======================================================
 async function handleUpload() {
     const name = document.getElementById('point-name').value;
@@ -192,6 +210,7 @@ async function handleUpload() {
     btn.disabled = true;
 
     try {
+        // A. Tải ảnh lên Cloudinary
         const formData = new FormData();
         formData.append('file', file);
         formData.append('upload_preset', CLOUDINARY_PRESET);
@@ -201,6 +220,7 @@ async function handleUpload() {
         });
         const cloudData = await cloudRes.json();
 
+        // B. Lưu thông tin vào bảng 'web_map_points' trong Supabase
         const center = map.getCenter();
         const dbRes = await fetch(`${SUPABASE_URL}/rest/v1/web_map_points`, {
             method: 'POST',
@@ -220,17 +240,22 @@ async function handleUpload() {
             alert("Lưu thành công!");
             location.reload();
         } else {
-            throw new Error("Không thể lưu database");
+            throw new Error("Không thể lưu vào database");
         }
     } catch (err) {
         alert("Lỗi: " + err.message);
+        console.error(err);
     } finally {
         btn.innerText = "Lưu địa điểm & Ảnh";
         btn.disabled = false;
     }
 }
 
-// HÀM BỔ TRỢ
+// ======================================================
+// HÀM BỔ TRỢ (HELPER FUNCTIONS)
+// ======================================================
+
+// Hàm tạo màu sắc cho Single Band Raster
 function viridisColor(t) {
     const lut = [[68,1,84],[72,40,120],[62,74,137],[49,104,142],[38,130,142],[31,158,137],[53,183,121],[110,206,88],[181,222,43],[253,231,37]];
     const idx = t * (lut.length - 1);
@@ -244,22 +269,26 @@ function viridisColor(t) {
     ];
 }
 
+// Hàm lưu file gốc vào Supabase Storage và link vào bảng map_layers
 async function saveLayerToSupabase(file, type, metadata = {}) {
     try {
         const fileName = `${type}_${Date.now()}_${file.name}`;
         const filePath = `uploads/${fileName}`;
 
-        const { data: uploadData, error: uploadError } = await supabase.storage
+        // Đẩy file lên Storage bucket 'gis_files'
+        const { data: uploadData, error: uploadError } = await supabaseClient.storage
             .from('gis_files')
             .upload(filePath, file);
 
         if (uploadError) throw uploadError;
         
-        const { data: urlData } = supabase.storage
+        // Lấy link URL công khai
+        const { data: urlData } = supabaseClient.storage
             .from('gis_files')
             .getPublicUrl(filePath);
 
-       const { error: dbError } = await supabase
+        // Chèn metadata vào bảng map_layers
+        const { error: dbError } = await supabaseClient
             .from('map_layers')
             .insert([{
                 layer_name: file.name,
@@ -269,8 +298,8 @@ async function saveLayerToSupabase(file, type, metadata = {}) {
             }]);
 
         if (dbError) throw dbError;
-        console.log(`Đã lưu ${type}: ${file.name}`);
+        console.log(`✅ Đã lưu bền vững lớp ${type}: ${file.name}`);
     } catch (err) {
-        console.error("Lỗi lưu trữ:", err.message);
+        console.error("❌ Lỗi lưu trữ Supabase:", err.message);
     }
-  }
+}

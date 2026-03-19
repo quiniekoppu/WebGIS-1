@@ -70,3 +70,29 @@ async function loadSavedLayers() {
         }
     });
 }
+
+async function syncDataFromDatabase() {
+    // 1. Tải các đối tượng tự vẽ
+    const { data: features } = await supabaseClient.from('web_map_features').select('*');
+    if (features) {
+        features.forEach(f => {
+            L.geoJSON(f.geojson).bindPopup(`<b>${f.name}</b>`).addTo(map);
+        });
+    }
+
+    // 2. Tải các đối tượng điểm kèm ảnh thực địa
+    const { data: points } = await supabaseClient.from('web_map_points').select('*');
+    if (points) {
+        points.forEach(p => {
+            // Chuyển 'POINT(lng lat)' sang [lat, lng]
+            const coords = p.geom.replace('POINT(', '').replace(')', '').split(' ');
+            const marker = L.marker([coords[1], coords[0]]).addTo(map);
+            if (p.image_url) {
+                marker.bindPopup(`<b>${p.name}</b><br><img src="${p.image_url}" width="150">`);
+            }
+        });
+    }
+}
+
+// Gọi hàm sau khi map khởi tạo xong
+syncDataFromDatabase();

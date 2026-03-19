@@ -48,16 +48,11 @@ const CONFIG = {
   searchApi: 'https://nominatim.openstreetmap.org/search'
 };
 
-const SUPABASE_URL = "https://db.nhvbplfxdojltzyhmkum.supabase.co"; 
-const SUPABASE_KEY = "nhvbplfxdojltzyhmkum";
+const SUPABASE_URL = "https://nhvbplfxdojltzyhmkum.supabase.co";
+const SUPABASE_KEY = "Quiin's Project";
 const CLOUDINARY_NAME = "Quiin";
 const CLOUDINARY_PRESET = "webgis_uploads";
-  
-// Khởi tạo Supabase Client
-var supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
-if (supabase) {
-    console.log("✅ Supabase Library đã được nhúng thành công!");
-    console.log("Client object:", supabase);
-} else {
-    console.error("❌ Lỗi nhúng thư viện Supabase.");
-}
+
+// Khởi tạo client dùng chung
+const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+

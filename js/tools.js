@@ -110,10 +110,30 @@ function deactivateAllTools() {
 }
 
 // -------- DRAW EVENTS --------
-map.on(L.Draw.Event.CREATED, function(e) {
-  const id = ++featureCount;
-  const layer = e.layer;
-  const type = e.layerType;
+map.on(L.Draw.Event.CREATED, async function (e) {
+    const id = ++featureCount;
+    const type = e.layerType;
+    const layer = e.layer;
+    
+    drawnItems.addLayer(layer);
+
+    // THUẬT TOÁN BỔ SUNG: Lưu vào Database
+    const featureData = {
+        name: `Đối tượng ${type} mới`,
+        feature_type: type,
+        geojson: layer.toGeoJSON()
+    };
+
+    try {
+        const { error } = await supabaseClient
+            .from('web_map_features')
+            .insert([featureData]);
+        
+        if (!error) console.log("✅ Đã lưu đối tượng vẽ vào DB");
+    } catch (err) {
+        console.error("❌ Lỗi lưu đối tượng:", err);
+    }
+});
 
   // Popup thông tin
   let info = `<strong>${getTypeLabel(type)} #${id}</strong><br/>`;
@@ -135,7 +155,7 @@ map.on(L.Draw.Event.CREATED, function(e) {
   featureMap[id] = layer;
   addFeatureToList(id, type, `${getTypeLabel(type)} #${id}`);
   deactivateAllTools();
-});
+
 
 // -------- MEASURE --------
 let measurePolyline = null;
