@@ -49,3 +49,24 @@ map.on('click', function(e) {
     addMarker(e.latlng);
   }
 });
+
+async function loadSavedLayers() {
+    const { data: layers, error } = await supabase
+        .from('map_layers')
+        .select('*');
+
+    if (error) return;
+
+    layers.forEach(async (layer) => {
+        if (layer.layer_type === 'vector') {
+            // Tải file GeoJSON từ URL và vẽ lên map
+            const res = await fetch(layer.file_url);
+            const geojson = await res.json();
+            L.geoJSON(geojson).addTo(map);
+        } else if (layer.layer_type === 'raster') {
+            // Vẽ lại Raster từ URL sử dụng ImageOverlay (Cần thêm logic xử lý ArrayBuffer nếu là file .tif gốc)
+            console.log("Tìm thấy lớp Raster lưu trữ:", layer.layer_name);
+            // Logic tái hiện Raster sẽ dùng lại hàm loadRaster() bạn đã có nhưng truyền URL thay vì File object
+        }
+    });
+}

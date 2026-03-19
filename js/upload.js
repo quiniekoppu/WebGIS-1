@@ -249,3 +249,67 @@ function viridisColor(t) {
     Math.round(lut[lo][2] + f * (lut[hi][2] - lut[lo][2]))
   ];
 }
+
+/**
+ * Hàm hỗ trợ upload file vật lý lên Supabase Storage và lưu link vào Database
+ */
+async function saveLayerToSupabase(file, type, metadata = {}) {
+    try {
+        const fileName = `${type}_${Date.now()}_${file.name}`;
+        const filePath = `uploads/${fileName}`;
+
+        // 1. Upload file vào Bucket tên là 'gis_files' 
+        // (Bạn cần tạo Bucket này trong giao diện Supabase -> Storage trước)
+        const { data: uploadData, error: uploadError } = await supabase.storage
+            .from('gis_files')
+            .upload(filePath, file);
+
+        if (uploadError) throw uploadError;
+
+        // 2. Lấy URL công khai của file
+        const { data: urlData } = supabase.storage
+            .from('gis_files')
+            .getPublicUrl(filePath);
+
+        const publicUrl = urlData.publicUrl;
+
+        // 3. Lưu thông tin vào bảng 'map_layers' để quản lý
+        const { error: dbError } = await supabase
+            .from('map_layers')
+            .insert([{
+                layer_name: file.name,
+                layer_type: type,
+                file_url: publicUrl,
+                metadata: metadata
+            }]);
+
+        if (dbError) throw dbError;
+
+        console.log(`Đã lưu bền vững lớp ${type}: ${file.name}`);
+    } catch (err) {
+        console.error("Lỗi lưu trữ:", err.message);
+    }
+}
+
+// --- CẬP NHẬT TRONG EVENT LISTENER CỦA VECTOR ---
+geojsonInput.addEventListener('change', function(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    
+    // ... (Giữ nguyên code hiển thị cũ của bạn) ...
+
+    // Bổ sung: Gọi hàm lưu trữ
+    saveLayerToSupabase(file, 'vector');
+});
+
+// --- CẬP NHẬT TRONG EVENT LISTENER CỦA RASTER ---
+rasterInput.addEventListener('change', async function(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    // ... (Giữ nguyên code hiển thị cũ của bạn) ...
+
+    // Bổ sung: Lưu trữ Raster kèm theo tọa độ bao (bounds) để lần sau hiển thị lại đúng vị trí
+    const bbox = image.getBoundingBox(); // Lấy từ logic đọc TIFF hiện tại của bạn
+    saveLayerToSupabase(file, 'raster', { bbox: bbox });
+});
