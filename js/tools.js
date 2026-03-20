@@ -1,4 +1,4 @@
-// ===== TOOLS.JS - Công cụ vẽ và đo =====
+// ===== TOOLS.JS - Công cụ vẽ, đo đạc và quản lý đối tượng =====
 
 window.activeDrawTool = null;
 let drawHandler = null;
@@ -70,7 +70,7 @@ function activateTool(toolName) {
     window.activeDrawTool = 'marker';
     document.getElementById('tool-marker').classList.add('active');
     map.getContainer().style.cursor = 'crosshair';
-    showNotification('Click lên bản đồ để đặt điểm');
+    if (typeof showNotification === 'function') showNotification('Click lên bản đồ để đặt điểm');
     return;
   }
 
@@ -109,8 +109,7 @@ function deactivateAllTools() {
   });
 }
 
-// -------- DRAW EVENTS --------
-// -------- DRAW EVENTS --------
+// -------- DRAW EVENTS (NÂNG CẤP: LƯU TÊN VÀO DB) --------
 map.on(L.Draw.Event.CREATED, async function (e) {
     const id = ++featureCount;
     const type = e.layerType;
@@ -118,15 +117,14 @@ map.on(L.Draw.Event.CREATED, async function (e) {
     
     drawnItems.addLayer(layer);
 
-    // --- [NÂNG CẤP 1] Yêu cầu người dùng nhập tên trước khi lưu ---
+    // --- Yêu cầu người dùng nhập tên trước khi lưu ---
     let featureName = window.prompt(`Nhập tên cho đối tượng ${getTypeLabel(type)} vừa vẽ:`, `Đối tượng ${type} mới`);
     
     // Nếu người dùng bấm Cancel, bỏ qua không lưu
     if (featureName === null) {
-        drawnItems.removeLayer(layer); // Xóa hình vừa vẽ khỏi bản đồ
+        drawnItems.removeLayer(layer);
         return; 
     }
-    // Nếu để trống tên, dùng tên mặc định
     if (featureName.trim() === "") featureName = `Đối tượng ${type} mới`;
 
     // Cập nhật Popup với tên vừa nhập
@@ -147,10 +145,10 @@ map.on(L.Draw.Event.CREATED, async function (e) {
     layer.openPopup();
 
     featureMap[id] = layer;
-    addFeatureToList(id, type, featureName); // Đưa tên lên danh sách sidebar
+    addFeatureToList(id, type, featureName);
     deactivateAllTools();
 
-    // --- [NÂNG CẤP 2] Lưu vào Database với tên chuẩn ---
+    // --- Lưu vào Database Supabase ---
     const featureData = {
         name: featureName,
         feature_type: type,
@@ -164,7 +162,6 @@ map.on(L.Draw.Event.CREATED, async function (e) {
         
         if (!error) {
             console.log("✅ Đã lưu đối tượng vẽ vào DB");
-            // Hiển thị thông báo nhỏ nếu bạn có hàm showNotification
             if (typeof showNotification === 'function') showNotification('Đã lưu vào cơ sở dữ liệu!');
         } else {
             throw error;
@@ -175,7 +172,7 @@ map.on(L.Draw.Event.CREATED, async function (e) {
     }
 });
 
-// -------- MEASURE --------
+// -------- MEASURE (ĐO ĐẠC KHOẢNG CÁCH) --------
 let measurePolyline = null;
 let measurePoints = [];
 let measureTooltips = [];
@@ -188,7 +185,7 @@ function startMeasure() {
   document.getElementById('tool-measure').classList.add('active');
   map.getContainer().style.cursor = 'crosshair';
   document.getElementById('measure-result').textContent = '📏 Click để bắt đầu đo. Double-click để kết thúc.';
-  showNotification('Click để thêm điểm đo. Double-click để kết thúc');
+  if (typeof showNotification === 'function') showNotification('Click để thêm điểm đo. Double-click để kết thúc');
 
   map.on('click', onMeasureClick);
   map.on('dblclick', onMeasureEnd);
@@ -224,7 +221,7 @@ function onMeasureEnd(e) {
   map.off('dblclick', onMeasureEnd);
 
   const total = calculatePolylineLength(measurePolyline);
-  showNotification(`Khoảng cách: ${formatDistance(total)}`);
+  if (typeof showNotification === 'function') showNotification(`Khoảng cách: ${formatDistance(total)}`);
   deactivateAllTools();
 }
 
@@ -241,13 +238,11 @@ function stopMeasure() {
   }
 }
 
-// -------- CLEAR --------
+// -------- CLEAR (NÂNG CẤP: XÓA TẤT CẢ TỪ DB) --------
 document.getElementById('tool-clear').addEventListener('click', async function() {
   if (!confirm('⚠️ NGUY HIỂM: Bạn có chắc chắn muốn xóa TẤT CẢ đối tượng đã vẽ khỏi Database? Hành động này không thể hoàn tác!')) return;
   
   try {
-    // Gửi lệnh xóa toàn bộ dữ liệu trong bảng web_map_features
-    // Dùng gt('id', 0) nghĩa là xóa mọi dòng có id > 0
     const { error } = await supabaseClient
       .from('web_map_features')
       .delete()
@@ -255,7 +250,6 @@ document.getElementById('tool-clear').addEventListener('click', async function()
 
     if (error) throw error;
 
-    // Làm sạch giao diện
     drawnItems.clearLayers();
     Object.keys(featureMap).forEach(k => delete featureMap[k]);
     featureCount = 0;
@@ -269,7 +263,8 @@ document.getElementById('tool-clear').addEventListener('click', async function()
     alert("Lỗi: Không thể xóa toàn bộ dữ liệu.");
   }
 });
-// -------- TOOL BUTTONS --------
+
+// -------- TOOL BUTTONS BINDING --------
 document.getElementById('tool-marker').addEventListener('click', () => activateTool('marker'));
 document.getElementById('tool-polyline').addEventListener('click', () => activateTool('polyline'));
 document.getElementById('tool-polygon').addEventListener('click', () => activateTool('polygon'));
@@ -307,35 +302,9 @@ function getTypeLabel(type) {
   return labels[type] || type;
 }
 
-function addFeatureToList(id, type, label) {
-  const container = document.getElementById('features-list');
-  const emptyMsg = container.querySelector('.empty-msg');
-  if (emptyMsg) emptyMsg.remove();
-
-  const item = document.createElement('div');
-  item.className = 'feature-item';
-  item.id = `feat-${id}`;
-  item.innerHTML = `
-    <div class="feat-info">
-      <i class="fa-solid ${getTypeIcon(type)}"></i>
-      <span>${label}</span>
-    </div>
-    <button class="feat-del-btn" onclick="deleteFeature(${id})" title="Xóa">
-      <i class="fa-solid fa-times"></i>
-    </button>
-  `;
-
-  // Click để zoom
-  item.querySelector('.feat-info').addEventListener('click', function() {
-    const layer = featureMap[id];
-    if (layer) {
-      if (layer.getLatLng) map.setView(layer.getLatLng(), 15);
-      else if (layer.getBounds) map.fitBounds(layer.getBounds(), { padding: [30, 30] });
-      layer.openPopup && layer.openPopup();
-    }
-  });
-
-  container.appendChild(item);
+function getTypeIcon(type) {
+  const icons = { marker: 'fa-location-dot', polyline: 'fa-minus', polygon: 'fa-vector-square', circle: 'fa-circle' };
+  return icons[type] || 'fa-map-pin';
 }
 
 function updateFeaturesList() {
@@ -343,48 +312,7 @@ function updateFeaturesList() {
   container.innerHTML = '<p class="empty-msg">Chưa có đối tượng nào</p>';
 }
 
-// --- NÂNG CẤP: XÓA ĐỐI TƯỢNG ĐỒNG BỘ VỚI DATABASE ---
-async function deleteFeature(id) {
-  // 1. Hỏi xác nhận trước khi xóa (tránh click nhầm)
-  if (!confirm('Bạn có chắc chắn muốn xóa đối tượng này khỏi bản đồ và Cơ sở dữ liệu?')) return;
-
-  try {
-    // 2. Gửi lệnh Xóa xuống Supabase dựa vào ID
-    const { error } = await supabaseClient
-      .from('web_map_features')
-      .delete()
-      .eq('id', id); // Tìm đúng cột id trong bảng để xóa
-
-    if (error) throw error;
-
-    // 3. Nếu DB xóa thành công, tiến hành xóa trên giao diện
-    const layer = featureMap[id];
-    if (layer) {
-      drawnItems.removeLayer(layer);
-      delete featureMap[id];
-      
-      const el = document.getElementById(`feat-${id}`);
-      if (el) el.remove();
-      
-      if (document.getElementById('features-list').children.length === 0) {
-        updateFeaturesList();
-      }
-      
-      console.log(`✅ Đã xóa đối tượng #${id} khỏi Database`);
-      if (typeof showNotification === 'function') showNotification('Đã xóa thành công!');
-    }
-  } catch (err) {
-    console.error("❌ Lỗi khi xóa đối tượng:", err);
-    alert("Lỗi: Không thể xóa đối tượng khỏi cơ sở dữ liệu.");
-  }
-}
-
-function getTypeIcon(type) {
-  const icons = { marker: 'fa-location-dot', polyline: 'fa-minus', polygon: 'fa-vector-square', circle: 'fa-circle' };
-  return icons[type] || 'fa-map-pin';
-}
-
-// --- NÂNG CẤP GIAO DIỆN: Thêm nút Đưa lên/Đưa xuống ---
+// -------- HIỂN THỊ SIDEBAR (NÂNG CẤP UI CÓ MÀU SẮC & LÊN XUỐNG) --------
 function addFeatureToList(id, type, label) {
   const container = document.getElementById('features-list');
   const emptyMsg = container.querySelector('.empty-msg');
@@ -438,6 +366,38 @@ function addFeatureToList(id, type, label) {
   // Chèn vào đầu danh sách
   container.insertBefore(item, container.firstChild);
 }
+
+// -------- LOGIC XÓA ĐỐI TƯỢNG TỪ DB --------
+async function deleteFeature(id) {
+  if (!confirm('Bạn có chắc chắn muốn xóa đối tượng này khỏi bản đồ và Cơ sở dữ liệu?')) return;
+
+  try {
+    const { error } = await supabaseClient
+      .from('web_map_features')
+      .delete()
+      .eq('id', id);
+
+    if (error) throw error;
+
+    const layer = featureMap[id];
+    if (layer) {
+      drawnItems.removeLayer(layer);
+      delete featureMap[id];
+      
+      const el = document.getElementById(`feat-${id}`);
+      if (el) el.remove();
+      
+      if (document.getElementById('features-list').children.length === 0) {
+        updateFeaturesList();
+      }
+      console.log(`✅ Đã xóa đối tượng #${id} khỏi Database`);
+    }
+  } catch (err) {
+    console.error("❌ Lỗi khi xóa đối tượng:", err);
+    alert("Lỗi: Không thể xóa đối tượng khỏi cơ sở dữ liệu.");
+  }
+}
+
 // -------- LOGIC ĐỔI MÀU & LƯU DB --------
 async function changeFeatureColor(id, newColor, type) {
     const layer = featureMap[id];
@@ -478,48 +438,41 @@ async function changeFeatureColor(id, newColor, type) {
     }
 }
 
-
-// --- NÂNG CẤP LOGIC: Đưa đối tượng lên trên cùng ---
+// -------- LOGIC ĐƯA LÊN TRÊN & LƯU DB --------
 async function bringFeatureToFront(id) {
     const layer = featureMap[id];
     if (!layer || !layer.bringToFront) return;
 
-    // 1. Đưa layer lên trên cùng của bản đồ
     layer.bringToFront();
 
-    // 2. Đẩy phần tử HTML lên ĐẦU danh sách Sidebar
     const item = document.getElementById(`feat-${id}`);
     const list = document.getElementById('features-list');
     if (item && list) list.insertBefore(item, list.firstChild);
 
-    // 3. Cập nhật chỉ số zIndex (dùng thời gian thực để làm số lớn nhất) và lưu DB
     try {
         const geojson = layer.toGeoJSON();
         geojson.properties = geojson.properties || {};
-        geojson.properties.zIndex = Date.now(); // Càng lưu muộn, số càng to -> Càng nằm trên
+        geojson.properties.zIndex = Date.now(); 
 
         await supabaseClient.from('web_map_features').update({ geojson: geojson }).eq('id', id);
     } catch(e) { console.error("Lỗi lưu zIndex:", e); }
 }
 
-// --- NÂNG CẤP LOGIC: Đưa đối tượng xuống dưới cùng ---
+// -------- LOGIC ĐƯA XUỐNG DƯỚI & LƯU DB --------
 async function sendFeatureToBack(id) {
     const layer = featureMap[id];
     if (!layer || !layer.bringToBack) return;
-
-    // 1. Đưa layer xuống dưới cùng của bản đồ
+    
     layer.bringToBack();
 
-    // 2. Đẩy phần tử HTML xuống CUỐI danh sách Sidebar
     const item = document.getElementById(`feat-${id}`);
     const list = document.getElementById('features-list');
     if (item && list) list.appendChild(item);
-
-    // 3. Cập nhật chỉ số zIndex (số âm để nằm dưới cùng) và lưu DB
+    
     try {
         const geojson = layer.toGeoJSON();
         geojson.properties = geojson.properties || {};
-        geojson.properties.zIndex = -Date.now(); // Số âm càng nhỏ -> Càng nằm dưới
+        geojson.properties.zIndex = -Date.now(); 
 
         await supabaseClient.from('web_map_features').update({ geojson: geojson }).eq('id', id);
     } catch(e) { console.error("Lỗi lưu zIndex:", e); }
