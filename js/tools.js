@@ -307,52 +307,27 @@ function getTypeLabel(type) {
   return labels[type] || type;
 }
 
-// --- NÂNG CẤP GIAO DIỆN: Thêm nút Đưa lên/Đưa xuống ---
 function addFeatureToList(id, type, label) {
   const container = document.getElementById('features-list');
   const emptyMsg = container.querySelector('.empty-msg');
   if (emptyMsg) emptyMsg.remove();
 
-  let currentColor = '#3388ff'; 
-  const layer = featureMap[id];
-  if (layer && layer.feature && layer.feature.properties && layer.feature.properties.customColor) {
-      currentColor = layer.feature.properties.customColor;
-  } else if (type === 'marker') {
-      currentColor = '#e53e3e';
-  }
-
   const item = document.createElement('div');
   item.className = 'feature-item';
   item.id = `feat-${id}`;
-  item.style.display = 'flex';
-  item.style.justifyContent = 'space-between';
-  item.style.alignItems = 'center';
-  
   item.innerHTML = `
-    <div class="feat-info" style="cursor:pointer; flex: 1;">
+    <div class="feat-info">
       <i class="fa-solid ${getTypeIcon(type)}"></i>
       <span>${label}</span>
     </div>
-    <div class="feat-actions" style="display: flex; gap: 8px; align-items: center;">
-      <button class="feat-action-btn" onclick="bringFeatureToFront(${id})" title="Đưa lên trên cùng" style="background:none; border:none; cursor:pointer; color:#4a5568;">
-        <i class="fa-solid fa-arrow-up"></i>
-      </button>
-      
-      <button class="feat-action-btn" onclick="sendFeatureToBack(${id})" title="Đưa xuống dưới cùng" style="background:none; border:none; cursor:pointer; color:#4a5568;">
-        <i class="fa-solid fa-arrow-down"></i>
-      </button>
-
-      <input type="color" value="${currentColor}" 
-             style="border:none; width:24px; height:24px; cursor:pointer; padding:0; background:transparent;" 
-             onchange="changeFeatureColor(${id}, this.value, '${type}')" 
-             title="Đổi màu sắc">
-      <button class="feat-del-btn" onclick="deleteFeature(${id})" title="Xóa">
-        <i class="fa-solid fa-times"></i>
-      </button>
-    </div>
+    <button class="feat-del-btn" onclick="deleteFeature(${id})" title="Xóa">
+      <i class="fa-solid fa-times"></i>
+    </button>
   `;
 
+  // Click để zoom
   item.querySelector('.feat-info').addEventListener('click', function() {
+    const layer = featureMap[id];
     if (layer) {
       if (layer.getLatLng) map.setView(layer.getLatLng(), 15);
       else if (layer.getBounds) map.fitBounds(layer.getBounds(), { padding: [30, 30] });
@@ -360,8 +335,7 @@ function addFeatureToList(id, type, label) {
     }
   });
 
-  // Khi thêm mới, luôn chèn vào đầu danh sách (vì nó nằm trên cùng của map)
-  container.insertBefore(item, container.firstChild);
+  container.appendChild(item);
 }
 
 function updateFeaturesList() {
@@ -460,93 +434,3 @@ function addFeatureToList(id, type, label) {
   container.appendChild(item);
 }
 
-// --- NÂNG CẤP LOGIC: Đổi màu trên map và lưu vào Supabase ---
-async function changeFeatureColor(id, newColor, type) {
-    const layer = featureMap[id];
-    if (!layer) return;
-
-    // 1. Cập nhật màu sắc trực tiếp trên bản đồ Leaflet
-    if (layer.setStyle) {
-        // Áp dụng cho Vùng (Polygon), Đường (Polyline), Hình tròn (Circle)
-        layer.setStyle({ color: newColor, fillColor: newColor });
-    } else if (type === 'marker' && layer.setIcon) {
-        // Áp dụng cho Điểm (Marker) - Ghi đè lại icon HTML
-        layer.setIcon(L.divIcon({
-            className: '',
-            html: `<div style="
-                width:14px;height:14px;
-                background:${newColor};
-                border:2px solid white;
-                border-radius:50%;
-                box-shadow:0 2px 6px rgba(0,0,0,0.3)
-            "></div>`,
-            iconSize: [14, 14],
-            iconAnchor: [7, 7]
-        }));
-    }
-
-    // 2. Chèn thông tin màu sắc vào cấu trúc GeoJSON để chuẩn bị lưu
-    const geojson = layer.toGeoJSON();
-    geojson.properties = geojson.properties || {};
-    geojson.properties.customColor = newColor; // Lưu màu vào properties
-
-    // 3. Gửi lệnh CẬP NHẬT (UPDATE) xuống Database
-    try {
-        const { error } = await supabaseClient
-            .from('web_map_features')
-            .update({ geojson: geojson })
-            .eq('id', id);
-
-        if (error) throw error;
-        console.log(`✅ Đã lưu màu sắc mới (${newColor}) cho đối tượng #${id}`);
-    } catch (err) {
-        console.error("❌ Lỗi khi cập nhật màu sắc:", err);
-        alert("Lỗi: Không thể lưu màu sắc vào CSDL.");
-    }
-}
-
-// --- NÂNG CẤP LOGIC: Đưa đối tượng lên trên cùng ---
-async function bringFeatureToFront(id) {
-    const layer = featureMap[id];
-    if (!layer || !layer.bringToFront) return;
-
-    // 1. Đưa layer lên trên cùng của bản đồ
-    layer.bringToFront();
-
-    // 2. Đẩy phần tử HTML lên ĐẦU danh sách Sidebar
-    const item = document.getElementById(`feat-${id}`);
-    const list = document.getElementById('features-list');
-    if (item && list) list.insertBefore(item, list.firstChild);
-
-    // 3. Cập nhật chỉ số zIndex (dùng thời gian thực để làm số lớn nhất) và lưu DB
-    try {
-        const geojson = layer.toGeoJSON();
-        geojson.properties = geojson.properties || {};
-        geojson.properties.zIndex = Date.now(); // Càng lưu muộn, số càng to -> Càng nằm trên
-
-        await supabaseClient.from('web_map_features').update({ geojson: geojson }).eq('id', id);
-    } catch(e) { console.error("Lỗi lưu zIndex:", e); }
-}
-
-// --- NÂNG CẤP LOGIC: Đưa đối tượng xuống dưới cùng ---
-async function sendFeatureToBack(id) {
-    const layer = featureMap[id];
-    if (!layer || !layer.bringToBack) return;
-
-    // 1. Đưa layer xuống dưới cùng của bản đồ
-    layer.bringToBack();
-
-    // 2. Đẩy phần tử HTML xuống CUỐI danh sách Sidebar
-    const item = document.getElementById(`feat-${id}`);
-    const list = document.getElementById('features-list');
-    if (item && list) list.appendChild(item);
-
-    // 3. Cập nhật chỉ số zIndex (số âm để nằm dưới cùng) và lưu DB
-    try {
-        const geojson = layer.toGeoJSON();
-        geojson.properties = geojson.properties || {};
-        geojson.properties.zIndex = -Date.now(); // Số âm càng nhỏ -> Càng nằm dưới
-
-        await supabaseClient.from('web_map_features').update({ geojson: geojson }).eq('id', id);
-    } catch(e) { console.error("Lỗi lưu zIndex:", e); }
-}
