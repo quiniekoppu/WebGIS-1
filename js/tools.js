@@ -242,16 +242,33 @@ function stopMeasure() {
 }
 
 // -------- CLEAR --------
-document.getElementById('tool-clear').addEventListener('click', function() {
-  if (!confirm('Xóa tất cả đối tượng đã vẽ?')) return;
-  drawnItems.clearLayers();
-  Object.keys(featureMap).forEach(k => delete featureMap[k]);
-  featureCount = 0;
-  updateFeaturesList();
-  stopMeasure();
-  showNotification('Đã xóa tất cả đối tượng');
-});
+document.getElementById('tool-clear').addEventListener('click', async function() {
+  if (!confirm('⚠️ NGUY HIỂM: Bạn có chắc chắn muốn xóa TẤT CẢ đối tượng đã vẽ khỏi Database? Hành động này không thể hoàn tác!')) return;
+  
+  try {
+    // Gửi lệnh xóa toàn bộ dữ liệu trong bảng web_map_features
+    // Dùng gt('id', 0) nghĩa là xóa mọi dòng có id > 0
+    const { error } = await supabaseClient
+      .from('web_map_features')
+      .delete()
+      .gt('id', 0); 
 
+    if (error) throw error;
+
+    // Làm sạch giao diện
+    drawnItems.clearLayers();
+    Object.keys(featureMap).forEach(k => delete featureMap[k]);
+    featureCount = 0;
+    updateFeaturesList();
+    stopMeasure();
+    
+    console.log("✅ Đã dọn dẹp toàn bộ dữ liệu vẽ trong Database");
+    if (typeof showNotification === 'function') showNotification('Đã xóa tất cả đối tượng khỏi Database');
+  } catch (err) {
+    console.error("❌ Lỗi khi xóa tất cả:", err);
+    alert("Lỗi: Không thể xóa toàn bộ dữ liệu.");
+  }
+});
 // -------- TOOL BUTTONS --------
 document.getElementById('tool-marker').addEventListener('click', () => activateTool('marker'));
 document.getElementById('tool-polyline').addEventListener('click', () => activateTool('polyline'));
@@ -326,16 +343,39 @@ function updateFeaturesList() {
   container.innerHTML = '<p class="empty-msg">Chưa có đối tượng nào</p>';
 }
 
-function deleteFeature(id) {
-  const layer = featureMap[id];
-  if (layer) {
-    drawnItems.removeLayer(layer);
-    delete featureMap[id];
-    const el = document.getElementById(`feat-${id}`);
-    if (el) el.remove();
-    if (document.getElementById('features-list').children.length === 0) {
-      updateFeaturesList();
+// --- NÂNG CẤP: XÓA ĐỐI TƯỢNG ĐỒNG BỘ VỚI DATABASE ---
+async function deleteFeature(id) {
+  // 1. Hỏi xác nhận trước khi xóa (tránh click nhầm)
+  if (!confirm('Bạn có chắc chắn muốn xóa đối tượng này khỏi bản đồ và Cơ sở dữ liệu?')) return;
+
+  try {
+    // 2. Gửi lệnh Xóa xuống Supabase dựa vào ID
+    const { error } = await supabaseClient
+      .from('web_map_features')
+      .delete()
+      .eq('id', id); // Tìm đúng cột id trong bảng để xóa
+
+    if (error) throw error;
+
+    // 3. Nếu DB xóa thành công, tiến hành xóa trên giao diện
+    const layer = featureMap[id];
+    if (layer) {
+      drawnItems.removeLayer(layer);
+      delete featureMap[id];
+      
+      const el = document.getElementById(`feat-${id}`);
+      if (el) el.remove();
+      
+      if (document.getElementById('features-list').children.length === 0) {
+        updateFeaturesList();
+      }
+      
+      console.log(`✅ Đã xóa đối tượng #${id} khỏi Database`);
+      if (typeof showNotification === 'function') showNotification('Đã xóa thành công!');
     }
+  } catch (err) {
+    console.error("❌ Lỗi khi xóa đối tượng:", err);
+    alert("Lỗi: Không thể xóa đối tượng khỏi cơ sở dữ liệu.");
   }
 }
 
