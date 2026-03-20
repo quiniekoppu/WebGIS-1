@@ -153,25 +153,29 @@ map.on(L.Draw.Event.CREATED, async function (e) {
     if (featureName.trim() === "") featureName = `Đối tượng ${type} mới`;
 
     let info = `<strong>${featureName}</strong><br/>`;
-    
-    // Khởi tạo geojson mặc định
-    let geojson = layer.toGeoJSON();
+    let geojson; // Khai báo biến chứa dữ liệu
 
     if (type === 'polyline') {
       const dist = calculatePolylineLength(layer);
       info += `Độ dài: <b>${formatDistance(dist)}</b>`;
+      geojson = layer.toGeoJSON();
     } else if (type === 'polygon') {
       const area = L.GeometryUtil.geodesicArea(layer.getLatLngs()[0]);
       info += `Diện tích: <b>${formatArea(area)}</b>`;
+      geojson = layer.toGeoJSON();
     } else if (type === 'circle') {
       const r = layer.getRadius();
       info += `Bán kính: <b>${formatDistance(r)}</b>`;
       
-      // THUẬT TOÁN MỚI: Ép hình tròn thành GeoJSON Polygon (64 đỉnh)
+      // Chuyển hình tròn thành Đa giác
       geojson = generateCirclePolygonGeoJSON(layer.getLatLng(), r);
+      geojson.properties = geojson.properties || {};
       geojson.properties.isCircle = true; 
       geojson.properties.radius = r;
     }
+
+    // 🔥 QUAN TRỌNG: Gắn cứng dữ liệu vào layer để không bị hàm mặc định ghi đè
+    layer.feature = geojson;
 
     layer.bindPopup(info);
     layer.openPopup();
@@ -182,26 +186,17 @@ map.on(L.Draw.Event.CREATED, async function (e) {
 
     const featureData = {
         name: featureName,
-        // Nếu là circle thì lưu thẳng vào DB với mác là 'polygon'
         feature_type: type === 'circle' ? 'polygon' : type,
         geojson: geojson
     };
 
     try {
-        const { error } = await supabaseClient
-            .from('web_map_features')
-            .insert([featureData]);
-        
+        const { error } = await supabaseClient.from('web_map_features').insert([featureData]);
         if (!error) {
             console.log(`✅ Đã lưu ${featureData.feature_type} vào DB`);
             if (typeof showNotification === 'function') showNotification('Đã lưu vào cơ sở dữ liệu!');
-        } else {
-            throw error;
-        }
-    } catch (err) {
-        console.error("❌ Lỗi lưu đối tượng:", err);
-        alert("Lỗi: Không thể lưu đối tượng vào CSDL.");
-    }
+        } else throw error;
+    } catch (err) { console.error("❌ Lỗi lưu đối tượng:", err); }
 });
 
 // -------- MEASURE (ĐO ĐẠC KHOẢNG CÁCH) --------
@@ -461,36 +456,23 @@ async function changeFeatureColor(id, newColor, type) {
     if (layer.setStyle) {
         layer.setStyle({ color: newColor, fillColor: newColor });
     } else if (type === 'marker' && layer.setIcon) {
+        // Cập nhật icon marker
         layer.setIcon(L.divIcon({
             className: '',
-            html: `<div style="
-                width:14px;height:14px;
-                background:${newColor};
-                border:2px solid white;
-                border-radius:50%;
-                box-shadow:0 2px 6px rgba(0,0,0,0.3)
-            "></div>`,
-            iconSize: [14, 14],
-            iconAnchor: [7, 7]
+            html: `<div style="width:14px;height:14px;background:${newColor};border:2px solid white;border-radius:50%;box-shadow:0 2px 6px rgba(0,0,0,0.3)"></div>`,
+            iconSize: [14, 14], iconAnchor: [7, 7]
         }));
     }
 
-    const geojson = layer.toGeoJSON();
+    // 🔥 Ưu tiên lấy dữ liệu đã nhớ thay vì tạo lại
+    const geojson = layer.feature || layer.toGeoJSON();
     geojson.properties = geojson.properties || {};
     geojson.properties.customColor = newColor; 
+    layer.feature = geojson; // Cập nhật lại vào bộ nhớ
 
     try {
-        const { error } = await supabaseClient
-            .from('web_map_features')
-            .update({ geojson: geojson })
-            .eq('id', id);
-
-        if (error) throw error;
-        console.log(`✅ Đã lưu màu sắc mới (${newColor}) cho đối tượng #${id}`);
-    } catch (err) {
-        console.error("❌ Lỗi khi cập nhật màu sắc:", err);
-        alert("Lỗi: Không thể lưu màu sắc vào CSDL.");
-    }
+        await supabaseClient.from('web_map_features').update({ geojson: geojson }).eq('id', id);
+    } catch (err) { console.error("❌ Lỗi cập nhật màu:", err); }
 }
 
 // -------- LOGIC ĐƯA LÊN TRÊN & LƯU DB --------
@@ -541,32 +523,25 @@ async function toggleFeatureVisibility(id) {
     const btn = document.getElementById(`toggle-btn-${id}`);
     const icon = btn.querySelector('i');
     const infoText = document.getElementById(`feat-info-${id}`);
-    
-    // Kiểm tra xem layer có đang nằm trên bản đồ không
     const isCurrentlyVisible = drawnItems.hasLayer(layer);
 
     if (isCurrentlyVisible) {
-        // Nếu đang hiện -> Ẩn đi
         drawnItems.removeLayer(layer);
-        icon.classList.remove('fa-eye');
-        icon.classList.add('fa-eye-slash');
-        btn.style.color = '#a0aec0';
-        infoText.style.opacity = '0.5';
+        icon.classList.replace('fa-eye', 'fa-eye-slash');
+        btn.style.color = '#a0aec0'; infoText.style.opacity = '0.5';
     } else {
-        // Nếu đang ẩn -> Hiện lên
         drawnItems.addLayer(layer);
-        icon.classList.remove('fa-eye-slash');
-        icon.classList.add('fa-eye');
-        btn.style.color = '#4a5568';
-        infoText.style.opacity = '1';
+        icon.classList.replace('fa-eye-slash', 'fa-eye');
+        btn.style.color = '#4a5568'; infoText.style.opacity = '1';
     }
 
-    // Lưu trạng thái vào Database
-    try {
-        const geojson = layer.toGeoJSON();
-        geojson.properties = geojson.properties || {};
-        geojson.properties.isVisible = !isCurrentlyVisible; 
+    // 🔥 Ưu tiên lấy dữ liệu đã nhớ
+    const geojson = layer.feature || layer.toGeoJSON();
+    geojson.properties = geojson.properties || {};
+    geojson.properties.isVisible = !isCurrentlyVisible; 
+    layer.feature = geojson;
 
+    try {
         await supabaseClient.from('web_map_features').update({ geojson: geojson }).eq('id', id);
     } catch(e) { console.error("Lỗi lưu trạng thái Ẩn/Hiện:", e); }
 }
@@ -666,7 +641,7 @@ async function updateOrderAfterDrag() {
             }
 
             // 2. Chèn thuộc tính Z-Index mới vào GeoJSON
-            const geojson = layer.toGeoJSON();
+            const geojson = layer.feature || layer.toGeoJSON();
             geojson.properties = geojson.properties || {};
             geojson.properties.zIndex = newZIndex;
             layer.feature = geojson; // Cập nhật tham chiếu local
