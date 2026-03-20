@@ -438,6 +438,46 @@ function addFeatureToList(id, type, label) {
   // Chèn vào đầu danh sách
   container.insertBefore(item, container.firstChild);
 }
+// -------- LOGIC ĐỔI MÀU & LƯU DB --------
+async function changeFeatureColor(id, newColor, type) {
+    const layer = featureMap[id];
+    if (!layer) return;
+
+    if (layer.setStyle) {
+        layer.setStyle({ color: newColor, fillColor: newColor });
+    } else if (type === 'marker' && layer.setIcon) {
+        layer.setIcon(L.divIcon({
+            className: '',
+            html: `<div style="
+                width:14px;height:14px;
+                background:${newColor};
+                border:2px solid white;
+                border-radius:50%;
+                box-shadow:0 2px 6px rgba(0,0,0,0.3)
+            "></div>`,
+            iconSize: [14, 14],
+            iconAnchor: [7, 7]
+        }));
+    }
+
+    const geojson = layer.toGeoJSON();
+    geojson.properties = geojson.properties || {};
+    geojson.properties.customColor = newColor; 
+
+    try {
+        const { error } = await supabaseClient
+            .from('web_map_features')
+            .update({ geojson: geojson })
+            .eq('id', id);
+
+        if (error) throw error;
+        console.log(`✅ Đã lưu màu sắc mới (${newColor}) cho đối tượng #${id}`);
+    } catch (err) {
+        console.error("❌ Lỗi khi cập nhật màu sắc:", err);
+        alert("Lỗi: Không thể lưu màu sắc vào CSDL.");
+    }
+}
+
 
 // --- NÂNG CẤP LOGIC: Đưa đối tượng lên trên cùng ---
 async function bringFeatureToFront(id) {
