@@ -344,49 +344,49 @@ function updateFeaturesList() {
   container.innerHTML = '<p class="empty-msg">Chưa có đối tượng nào</p>';
 }
 
-// -------- HIỂN THỊ SIDEBAR (NÂNG CẤP UI CÓ NÚT ẨN/HIỆN) --------
+// -------- HIỂN THỊ SIDEBAR --------
 function addFeatureToList(id, type, label) {
   const container = document.getElementById('features-list');
   const emptyMsg = container.querySelector('.empty-msg');
   if (emptyMsg) emptyMsg.remove();
 
   let currentColor = '#3388ff'; 
-  let isVisible = true; // Mặc định là hiển thị
+  let isVisible = true; 
 
   const layer = featureMap[id];
   if (layer && layer.feature && layer.feature.properties) {
       if (layer.feature.properties.customColor) currentColor = layer.feature.properties.customColor;
-      if (layer.feature.properties.isVisible === false) isVisible = false; // Đọc trạng thái từ DB
+      if (layer.feature.properties.isVisible === false) isVisible = false; 
   } else if (type === 'marker') {
       currentColor = '#e53e3e';
   }
 
-  // Cấu hình giao diện con mắt
   const eyeIcon = isVisible ? 'fa-eye' : 'fa-eye-slash';
   const eyeColor = isVisible ? '#4a5568' : '#a0aec0';
 
   const item = document.createElement('div');
   item.className = 'feature-item';
   item.id = `feat-${id}`;
+  item.draggable = true; // BẬT TÍNH NĂNG KÉO THẢ
   item.style.display = 'flex';
   item.style.justifyContent = 'space-between';
   item.style.alignItems = 'center';
   
   item.innerHTML = `
-    <div class="feat-info" style="cursor:pointer; flex: 1; opacity: ${isVisible ? '1' : '0.5'}; transition: 0.3s;" id="feat-info-${id}">
-      <i class="fa-solid ${getTypeIcon(type)}"></i>
-      <span>${label}</span>
+    <div style="display:flex; align-items:center; flex:1;">
+        <div class="feat-drag-handle" style="color: #cbd5e0; padding-right: 12px; cursor: grab;">
+          <i class="fa-solid fa-grip-vertical"></i>
+        </div>
+        
+        <div class="feat-info" style="cursor:pointer; opacity: ${isVisible ? '1' : '0.5'}; transition: 0.3s;" id="feat-info-${id}">
+          <i class="fa-solid ${getTypeIcon(type)}"></i>
+          <span>${label}</span>
+        </div>
     </div>
+
     <div class="feat-actions" style="display: flex; gap: 8px; align-items: center;">
       <button class="feat-action-btn" onclick="toggleFeatureVisibility(${id})" title="Ẩn/Hiện layer" style="background:none; border:none; cursor:pointer; color:${eyeColor};" id="toggle-btn-${id}">
         <i class="fa-solid ${eyeIcon}"></i>
-      </button>
-
-      <button class="feat-action-btn" onclick="bringFeatureToFront(${id})" title="Đưa lên trên cùng" style="background:none; border:none; cursor:pointer; color:#4a5568;">
-        <i class="fa-solid fa-arrow-up"></i>
-      </button>
-      <button class="feat-action-btn" onclick="sendFeatureToBack(${id})" title="Đưa xuống dưới cùng" style="background:none; border:none; cursor:pointer; color:#4a5568;">
-        <i class="fa-solid fa-arrow-down"></i>
       </button>
       <input type="color" value="${currentColor}" 
              style="border:none; width:24px; height:24px; cursor:pointer; padding:0; background:transparent;" 
@@ -398,7 +398,19 @@ function addFeatureToList(id, type, label) {
     </div>
   `;
 
-  // Click để zoom (chỉ hoạt động khi đang hiển thị)
+  // --- SỰ KIỆN KÉO THẢ CHO TỪNG ITEM ---
+  item.addEventListener('dragstart', () => {
+      item.classList.add('dragging');
+      item.style.opacity = '0.4'; // Làm mờ khi đang kéo
+  });
+
+  item.addEventListener('dragend', () => {
+      item.classList.remove('dragging');
+      item.style.opacity = '1';
+      // KHI THẢ CHUỘT RA: Gọi hàm tính toán lại vị trí và lưu DB
+      updateOrderAfterDrag();
+  });
+
   item.querySelector('.feat-info').addEventListener('click', function() {
     if (layer && drawnItems.hasLayer(layer)) {
       if (layer.getLatLng) map.setView(layer.getLatLng(), 15);
@@ -407,7 +419,6 @@ function addFeatureToList(id, type, label) {
     }
   });
 
-  // Chèn vào đầu danh sách
   container.insertBefore(item, container.firstChild);
 }
 
@@ -594,4 +605,86 @@ function generateCirclePolygonGeoJSON(center, radiusMeters, numSegments = 64) {
         },
         properties: {}
     };
+}
+
+// ===================================================================
+// NÂNG CẤP KÉO THẢ: VÙNG CHỨA ITEM VÀ ĐỒNG BỘ Z-INDEX XUỐNG DATABASE
+// ===================================================================
+
+const featuresListContainer = document.getElementById('features-list');
+if (featuresListContainer) {
+    // Xử lý hiệu ứng chèn item khi đang di chuột kéo
+    featuresListContainer.addEventListener('dragover', e => {
+        e.preventDefault(); // Cho phép thả
+        const afterElement = getDragAfterElement(featuresListContainer, e.clientY);
+        const draggable = document.querySelector('.dragging');
+        if (draggable) {
+            if (afterElement == null) {
+                featuresListContainer.appendChild(draggable);
+            } else {
+                featuresListContainer.insertBefore(draggable, afterElement);
+            }
+        }
+    });
+}
+
+// Hàm tính toán xem vị trí chuột đang nằm trên hay dưới phần tử nào
+function getDragAfterElement(container, y) {
+    const draggableElements = [...container.querySelectorAll('.feature-item:not(.dragging)')];
+    return draggableElements.reduce((closest, child) => {
+        const box = child.getBoundingClientRect();
+        const offset = y - box.top - box.height / 2;
+        if (offset < 0 && offset > closest.offset) {
+            return { offset: offset, element: child };
+        } else {
+            return closest;
+        }
+    }, { offset: Number.NEGATIVE_INFINITY }).element;
+}
+
+// --- THUẬT TOÁN ĐỒNG BỘ: Tính toán lại Z-Index và lưu hàng loạt ---
+async function updateOrderAfterDrag() {
+    const items = document.querySelectorAll('.feature-item');
+    const updatePromises = [];
+
+    // Lặp danh sách TỪ DƯỚI LÊN TRÊN để set thứ tự Z-Index (Layer ở trên cùng = list.firstChild)
+    const reversedItems = Array.from(items).reverse();
+    
+    reversedItems.forEach((item, index) => {
+        const id = parseInt(item.id.replace('feat-', ''));
+        const layer = featureMap[id];
+        
+        if (layer) {
+            const newZIndex = index * 10; // Đáy = 0, càng lên trên Z-Index càng to (10, 20, 30...)
+
+            // 1. Thay đổi thứ tự trực tiếp trên Map
+            if (layer.bringToFront) {
+                layer.bringToFront(); // Vector (Polyline, Polygon, Circle)
+            }
+            if (layer.setZIndexOffset) {
+                layer.setZIndexOffset(newZIndex); // Marker (Điểm)
+            }
+
+            // 2. Chèn thuộc tính Z-Index mới vào GeoJSON
+            const geojson = layer.toGeoJSON();
+            geojson.properties = geojson.properties || {};
+            geojson.properties.zIndex = newZIndex;
+            layer.feature = geojson; // Cập nhật tham chiếu local
+
+            // 3. Đưa vào mảng Promise để chạy lưu Database hàng loạt
+            updatePromises.push(
+                supabaseClient.from('web_map_features').update({ geojson: geojson }).eq('id', id)
+            );
+        }
+    });
+
+    // 4. Chạy lưu hàng loạt vào Supabase
+    try {
+        if (updatePromises.length > 0) {
+            await Promise.all(updatePromises);
+            console.log("✅ Đã cập nhật toàn bộ thứ tự Z-Index sau khi kéo thả!");
+        }
+    } catch (err) {
+        console.error("❌ Lỗi khi đồng bộ Z-Index:", err);
+    }
 }
