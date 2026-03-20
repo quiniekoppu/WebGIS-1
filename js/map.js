@@ -120,12 +120,18 @@ async function syncDataFromDatabase() {
 
                     layerGroup.eachLayer(layer => {
                         layer.feature = layer.feature || geoData; 
-                        drawnItems.addLayer(layer);
-                        layer.bindPopup(`<strong>${f.name}</strong><br><em>ID: #${f.id}</em>`);
                         
                         const dbId = f.id;
                         if (typeof featureMap !== 'undefined') featureMap[dbId] = layer;
 
+                        // --- NÂNG CẤP: Đọc trạng thái Ẩn/Hiện từ DB ---
+                        const isVisible = layer.feature.properties?.isVisible !== false;
+                        if (isVisible) {
+                            drawnItems.addLayer(layer); // Chỉ đưa lên bản đồ nếu đang ở trạng thái Hiện
+                        }
+
+                        layer.bindPopup(`<strong>${f.name}</strong><br><em>ID: #${f.id}</em>`);
+                        
                         if (typeof addFeatureToList === 'function') {
                             addFeatureToList(dbId, f.feature_type, f.name);
                         }

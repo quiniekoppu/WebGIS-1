@@ -312,19 +312,26 @@ function updateFeaturesList() {
   container.innerHTML = '<p class="empty-msg">Chưa có đối tượng nào</p>';
 }
 
-// -------- HIỂN THỊ SIDEBAR (NÂNG CẤP UI CÓ MÀU SẮC & LÊN XUỐNG) --------
+// -------- HIỂN THỊ SIDEBAR (NÂNG CẤP UI CÓ NÚT ẨN/HIỆN) --------
 function addFeatureToList(id, type, label) {
   const container = document.getElementById('features-list');
   const emptyMsg = container.querySelector('.empty-msg');
   if (emptyMsg) emptyMsg.remove();
 
   let currentColor = '#3388ff'; 
+  let isVisible = true; // Mặc định là hiển thị
+
   const layer = featureMap[id];
-  if (layer && layer.feature && layer.feature.properties && layer.feature.properties.customColor) {
-      currentColor = layer.feature.properties.customColor;
+  if (layer && layer.feature && layer.feature.properties) {
+      if (layer.feature.properties.customColor) currentColor = layer.feature.properties.customColor;
+      if (layer.feature.properties.isVisible === false) isVisible = false; // Đọc trạng thái từ DB
   } else if (type === 'marker') {
       currentColor = '#e53e3e';
   }
+
+  // Cấu hình giao diện con mắt
+  const eyeIcon = isVisible ? 'fa-eye' : 'fa-eye-slash';
+  const eyeColor = isVisible ? '#4a5568' : '#a0aec0';
 
   const item = document.createElement('div');
   item.className = 'feature-item';
@@ -334,11 +341,15 @@ function addFeatureToList(id, type, label) {
   item.style.alignItems = 'center';
   
   item.innerHTML = `
-    <div class="feat-info" style="cursor:pointer; flex: 1;">
+    <div class="feat-info" style="cursor:pointer; flex: 1; opacity: ${isVisible ? '1' : '0.5'}; transition: 0.3s;" id="feat-info-${id}">
       <i class="fa-solid ${getTypeIcon(type)}"></i>
       <span>${label}</span>
     </div>
     <div class="feat-actions" style="display: flex; gap: 8px; align-items: center;">
+      <button class="feat-action-btn" onclick="toggleFeatureVisibility(${id})" title="Ẩn/Hiện layer" style="background:none; border:none; cursor:pointer; color:${eyeColor};" id="toggle-btn-${id}">
+        <i class="fa-solid ${eyeIcon}"></i>
+      </button>
+
       <button class="feat-action-btn" onclick="bringFeatureToFront(${id})" title="Đưa lên trên cùng" style="background:none; border:none; cursor:pointer; color:#4a5568;">
         <i class="fa-solid fa-arrow-up"></i>
       </button>
@@ -355,8 +366,9 @@ function addFeatureToList(id, type, label) {
     </div>
   `;
 
+  // Click để zoom (chỉ hoạt động khi đang hiển thị)
   item.querySelector('.feat-info').addEventListener('click', function() {
-    if (layer) {
+    if (layer && drawnItems.hasLayer(layer)) {
       if (layer.getLatLng) map.setView(layer.getLatLng(), 15);
       else if (layer.getBounds) map.fitBounds(layer.getBounds(), { padding: [30, 30] });
       layer.openPopup && layer.openPopup();
@@ -476,4 +488,42 @@ async function sendFeatureToBack(id) {
 
         await supabaseClient.from('web_map_features').update({ geojson: geojson }).eq('id', id);
     } catch(e) { console.error("Lỗi lưu zIndex:", e); }
+}
+
+// -------- LOGIC ẨN/HIỆN & LƯU DB --------
+async function toggleFeatureVisibility(id) {
+    const layer = featureMap[id];
+    if (!layer) return;
+
+    const btn = document.getElementById(`toggle-btn-${id}`);
+    const icon = btn.querySelector('i');
+    const infoText = document.getElementById(`feat-info-${id}`);
+    
+    // Kiểm tra xem layer có đang nằm trên bản đồ không
+    const isCurrentlyVisible = drawnItems.hasLayer(layer);
+
+    if (isCurrentlyVisible) {
+        // Nếu đang hiện -> Ẩn đi
+        drawnItems.removeLayer(layer);
+        icon.classList.remove('fa-eye');
+        icon.classList.add('fa-eye-slash');
+        btn.style.color = '#a0aec0';
+        infoText.style.opacity = '0.5';
+    } else {
+        // Nếu đang ẩn -> Hiện lên
+        drawnItems.addLayer(layer);
+        icon.classList.remove('fa-eye-slash');
+        icon.classList.add('fa-eye');
+        btn.style.color = '#4a5568';
+        infoText.style.opacity = '1';
+    }
+
+    // Lưu trạng thái vào Database
+    try {
+        const geojson = layer.toGeoJSON();
+        geojson.properties = geojson.properties || {};
+        geojson.properties.isVisible = !isCurrentlyVisible; 
+
+        await supabaseClient.from('web_map_features').update({ geojson: geojson }).eq('id', id);
+    } catch(e) { console.error("Lỗi lưu trạng thái Ẩn/Hiện:", e); }
 }
