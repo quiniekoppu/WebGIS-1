@@ -134,6 +134,40 @@ async function loadSavedLayers() {
         });
         console.log(`✅ Đã đồng bộ ${features.length} đối tượng vào Catalog với đúng thứ tự Z-Index.`);
     }
+    // 2. Tải các đối tượng điểm kèm ảnh/video thực địa
+    const { data: points, error: pointError } = await supabaseClient.from('web_map_points').select('*');
+    if (pointError) {
+        console.error("❌ Lỗi tải dữ liệu points:", pointError);
+    } else if (points) {
+        points.forEach(p => {
+            try {
+                // Chuyển 'POINT(lng lat)' sang [lat, lng]
+                const coords = p.geom.replace('POINT(', '').replace(')', '').split(' ');
+                const marker = L.marker([coords[1], coords[0]]).addTo(map);
+                
+                let mediaHTML = '';
+                if (p.image_url) {
+                    // Phân biệt Video và Ảnh
+                    const isVideo = p.image_url.match(/\.(mp4|webm|ogg)$/i) || p.image_url.includes('/video/upload/');
+                    if (isVideo) {
+                        mediaHTML = `<br><video src="${p.image_url}" width="200" controls muted style="border-radius:6px; margin-top:8px;"></video>`;
+                    } else {
+                        mediaHTML = `<br><img src="${p.image_url}" width="200" style="border-radius:6px; margin-top:8px;">`;
+                    }
+                }
+                
+                marker.bindPopup(`
+                    <div style="text-align:center;">
+                        <b style="font-size: 1.1em; color: #2d3748;">${p.name}</b>
+                        ${mediaHTML}
+                    </div>
+                `, { maxWidth: 220 });
+
+            } catch (err) {
+                console.error("Lỗi parse điểm chụp:", p, err);
+            }
+        });
+    }}
 // Gọi hàm sau khi map khởi tạo xong
 syncDataFromDatabase();
 // Bạn có thể mở comment dòng dưới nếu muốn tự động load cả các Layer Raster/Vector đã lưu
