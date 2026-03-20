@@ -84,39 +84,43 @@ async function syncDataFromDatabase() {
     const { data: features, error: featError } = await supabaseClient
         .from('web_map_features')
         .select('*')
-        .order('id', { ascending: true }); // Sắp xếp theo ID cũ đến mới
+        .order('id', { ascending: true }); 
 
     if (featError) {
         console.error("❌ Lỗi tải dữ liệu features:", featError);
     } else if (features) {
         features.forEach(f => {
             try {
-                // Biến đổi GeoJSON thành Layer của Leaflet
+                // Biến đổi GeoJSON thành Layer của Leaflet (ĐÃ NÂNG CẤP ĐỌC MÀU SẮC)
                 const layerGroup = L.geoJSON(f.geojson, {
-                    style: { color: CONFIG.drawColors?.stroke || '#3388ff', weight: 3, fillOpacity: 0.2 },
-                    pointToLayer: (feature, latlng) => L.circleMarker(latlng, { 
-                        radius: 6, color: 'white', weight: 2, fillColor: '#e53e3e', fillOpacity: 1 
-                    })
+                    style: function(feature) {
+                        // Đọc màu customColor từ Database, nếu không có thì dùng màu xanh mặc định
+                        const color = feature.properties?.customColor || CONFIG.drawColors?.stroke || '#3388ff';
+                        return { color: color, fillColor: color, weight: 3, fillOpacity: 0.2 };
+                    },
+                    pointToLayer: (feature, latlng) => {
+                        // Đọc màu cho Điểm (Marker/CircleMarker)
+                        const color = feature.properties?.customColor || '#e53e3e';
+                        return L.circleMarker(latlng, { 
+                            radius: 6, color: 'white', weight: 2, fillColor: color, fillOpacity: 1 
+                        });
+                    }
                 });
 
                 // L.geoJSON trả về 1 Group, ta cần bóc tách từng lớp (layer) bên trong ra
                 layerGroup.eachLayer(layer => {
-                    // 1. Thêm vào nhóm đối tượng vẽ trên map
-                    drawnItems.addLayer(layer);
-                    
-                    // 2. Gắn Popup thông tin
-                    layer.bindPopup(`<strong>${f.name}</strong><br><em>ID: #${f.id}</em>`);
+                    // Cập nhật lại thuộc tính để truyền cho Sidebar
+                    layer.feature = layer.feature || f.geojson; 
 
-                    // 3. Đồng bộ vào biến quản lý bộ nhớ (Dùng ID của database)
+                    drawnItems.addLayer(layer);
+                    layer.bindPopup(`<strong>${f.name}</strong><br><em>ID: #${f.id}</em>`);
+                    
                     const dbId = f.id;
                     featureMap[dbId] = layer;
 
-                    // 4. In ra giao diện Sidebar Catalog (Dùng hàm đã có ở tools.js)
+                    // Gọi hàm tạo list Sidebar (nó sẽ tự đọc customColor để render ô chọn màu)
                     if (typeof addFeatureToList === 'function') {
-                        addFeatureToList(dbId, f.feature_type, f.name);
-                    }
-
-                    // 5. Đồng bộ biến đếm featureCount để khi vẽ tiếp không bị trùng ID
+                        addFeatureToList(dbId, f.feature_type, f.name);}
                     if (typeof featureCount !== 'undefined' && dbId > featureCount) {
                         featureCount = dbId;
                     }

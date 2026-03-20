@@ -383,3 +383,98 @@ function getTypeIcon(type) {
   const icons = { marker: 'fa-location-dot', polyline: 'fa-minus', polygon: 'fa-vector-square', circle: 'fa-circle' };
   return icons[type] || 'fa-map-pin';
 }
+
+// --- NÂNG CẤP GIAO DIỆN: Thêm nút chọn màu vào Sidebar ---
+function addFeatureToList(id, type, label) {
+  const container = document.getElementById('features-list');
+  const emptyMsg = container.querySelector('.empty-msg');
+  if (emptyMsg) emptyMsg.remove();
+
+  // Tìm màu hiện tại nếu đã có trong GeoJSON, nếu chưa thì dùng màu mặc định
+  let currentColor = '#3388ff'; 
+  const layer = featureMap[id];
+  if (layer && layer.feature && layer.feature.properties && layer.feature.properties.customColor) {
+      currentColor = layer.feature.properties.customColor;
+  } else if (type === 'marker') {
+      currentColor = '#e53e3e';
+  }
+
+  const item = document.createElement('div');
+  item.className = 'feature-item';
+  item.id = `feat-${id}`;
+  item.style.display = 'flex';
+  item.style.justifyContent = 'space-between';
+  item.style.alignItems = 'center';
+  
+  item.innerHTML = `
+    <div class="feat-info" style="cursor:pointer; flex: 1;">
+      <i class="fa-solid ${getTypeIcon(type)}"></i>
+      <span>${label}</span>
+    </div>
+    <div class="feat-actions" style="display: flex; gap: 8px; align-items: center;">
+      <input type="color" value="${currentColor}" 
+             style="border:none; width:24px; height:24px; cursor:pointer; padding:0; background:transparent;" 
+             onchange="changeFeatureColor(${id}, this.value, '${type}')" 
+             title="Đổi màu sắc">
+      <button class="feat-del-btn" onclick="deleteFeature(${id})" title="Xóa">
+        <i class="fa-solid fa-times"></i>
+      </button>
+    </div>
+  `;
+
+  // Click để zoom
+  item.querySelector('.feat-info').addEventListener('click', function() {
+    if (layer) {
+      if (layer.getLatLng) map.setView(layer.getLatLng(), 15);
+      else if (layer.getBounds) map.fitBounds(layer.getBounds(), { padding: [30, 30] });
+      layer.openPopup && layer.openPopup();
+    }
+  });
+
+  container.appendChild(item);
+}
+
+// --- NÂNG CẤP LOGIC: Đổi màu trên map và lưu vào Supabase ---
+async function changeFeatureColor(id, newColor, type) {
+    const layer = featureMap[id];
+    if (!layer) return;
+
+    // 1. Cập nhật màu sắc trực tiếp trên bản đồ Leaflet
+    if (layer.setStyle) {
+        // Áp dụng cho Vùng (Polygon), Đường (Polyline), Hình tròn (Circle)
+        layer.setStyle({ color: newColor, fillColor: newColor });
+    } else if (type === 'marker' && layer.setIcon) {
+        // Áp dụng cho Điểm (Marker) - Ghi đè lại icon HTML
+        layer.setIcon(L.divIcon({
+            className: '',
+            html: `<div style="
+                width:14px;height:14px;
+                background:${newColor};
+                border:2px solid white;
+                border-radius:50%;
+                box-shadow:0 2px 6px rgba(0,0,0,0.3)
+            "></div>`,
+            iconSize: [14, 14],
+            iconAnchor: [7, 7]
+        }));
+    }
+
+    // 2. Chèn thông tin màu sắc vào cấu trúc GeoJSON để chuẩn bị lưu
+    const geojson = layer.toGeoJSON();
+    geojson.properties = geojson.properties || {};
+    geojson.properties.customColor = newColor; // Lưu màu vào properties
+
+    // 3. Gửi lệnh CẬP NHẬT (UPDATE) xuống Database
+    try {
+        const { error } = await supabaseClient
+            .from('web_map_features')
+            .update({ geojson: geojson })
+            .eq('id', id);
+
+        if (error) throw error;
+        console.log(`✅ Đã lưu màu sắc mới (${newColor}) cho đối tượng #${id}`);
+    } catch (err) {
+        console.error("❌ Lỗi khi cập nhật màu sắc:", err);
+        alert("Lỗi: Không thể lưu màu sắc vào CSDL.");
+    }
+}
