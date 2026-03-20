@@ -367,30 +367,35 @@ function addFeatureToList(id, type, label) {
   item.style.justifyContent = 'space-between';
   item.style.alignItems = 'center';
   
-  // --- TÌM ĐOẠN item.innerHTML = `...` TRONG HÀM addFeatureToList VÀ THAY BẰNG ĐOẠN NÀY ---
   item.innerHTML = `
-    <div style="display:flex; align-items:center; flex:1;">
+    <div style="display:flex; align-items:center; flex:1; overflow:hidden;">
         <div class="feat-drag-handle" style="color: #cbd5e0; padding-right: 12px; cursor: grab;">
           <i class="fa-solid fa-grip-vertical"></i>
         </div>
-        <div class="feat-info" style="cursor:pointer; opacity: ${isVisible ? '1' : '0.5'}; transition: 0.3s;" id="feat-info-${id}">
+        <div class="feat-info" style="cursor:pointer; opacity: ${isVisible ? '1' : '0.5'}; transition: 0.3s; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" id="feat-info-${id}">
           <i class="fa-solid ${getTypeIcon(type)}"></i>
-          <span>${label}</span>
+          <span id="feat-name-${id}">${label}</span>
         </div>
     </div>
 
-    <div class="feat-actions" style="display: flex; gap: 8px; align-items: center;">
-      <button class="feat-action-btn" onclick="reprojectFeature(${id})" title="Chuyển tọa độ (VN2000 -> WGS84)" style="background:none; border:none; cursor:pointer; color:#d69e2e;">
+    <div class="feat-actions" style="display: flex; gap: 8px; align-items: center; padding-left: 8px;">
+      <button class="feat-action-btn" onclick="renameFeature(${id})" title="Đổi tên đối tượng" style="background:none; border:none; cursor:pointer; color:#3182ce;">
+        <i class="fa-solid fa-pen"></i>
+      </button>
+
+      <button class="feat-action-btn" onclick="reprojectFeature(${id})" title="Chuyển tọa độ" style="background:none; border:none; cursor:pointer; color:#d69e2e;">
         <i class="fa-solid fa-satellite-dish"></i>
       </button>
 
       <button class="feat-action-btn" onclick="toggleFeatureVisibility(${id})" title="Ẩn/Hiện layer" style="background:none; border:none; cursor:pointer; color:${eyeColor};" id="toggle-btn-${id}">
         <i class="fa-solid ${eyeIcon}"></i>
       </button>
+      
       <input type="color" value="${currentColor}" 
              style="border:none; width:24px; height:24px; cursor:pointer; padding:0; background:transparent;" 
              onchange="changeFeatureColor(${id}, this.value, '${type}')" 
              title="Đổi màu sắc">
+             
       <button class="feat-del-btn" onclick="deleteFeature(${id})" title="Xóa" style="border:none; background:none; cursor:pointer; color:#e53e3e;">
         <i class="fa-solid fa-times"></i>
       </button>
@@ -777,5 +782,68 @@ async function reprojectFeature(id) {
     } catch (error) {
         console.error("Lỗi chuyển tọa độ:", error);
         alert("Lỗi: " + error.message);
+    }
+}
+
+// ===================================================================
+// NÂNG CẤP: THUẬT TOÁN ĐỔI TÊN ĐỐI TƯỢNG VÀ LƯU DATABASE
+// ===================================================================
+
+async function renameFeature(id) {
+    const layer = featureMap[id];
+    if (!layer) return;
+
+    // 1. Lấy tên hiện tại đang hiển thị trên giao diện
+    const nameSpan = document.getElementById(`feat-name-${id}`);
+    const currentName = nameSpan ? nameSpan.innerText : "Đối tượng";
+
+    // 2. Hỏi người dùng nhập tên mới
+    const newName = prompt("Nhập tên mới cho đối tượng này:", currentName);
+
+    // Kiểm tra nếu bấm Cancel, để trống, hoặc không đổi tên thì hủy lệnh
+    if (newName === null || newName.trim() === "" || newName.trim() === currentName) {
+        return; 
+    }
+
+    const finalName = newName.trim();
+
+    try {
+        // 3. Cập nhật DOM trên thanh Sidebar ngay lập tức cho mượt
+        if (nameSpan) nameSpan.innerText = finalName;
+
+        // 4. Cập nhật tên bên trong nội dung Popup trên bản đồ
+        if (layer.getPopup()) {
+            const oldContent = layer.getPopup().getContent();
+            // Dùng Regex tìm và thay thế đoạn text nằm giữa cặp thẻ <strong>...</strong> (Nơi chứa tên)
+            const newContent = oldContent.replace(/<strong>(.*?)<\/strong>/, `<strong>${finalName}</strong>`);
+            layer.bindPopup(newContent);
+        }
+
+        // 5. Cập nhật thuộc tính name vào cấu trúc GeoJSON
+        const geojson = layer.feature || layer.toGeoJSON();
+        geojson.properties = geojson.properties || {};
+        geojson.properties.name = finalName; 
+        layer.feature = geojson; // Cập nhật lại vào bộ nhớ trình duyệt
+
+        // 6. Gửi lệnh UPDATE xuống Supabase (Cập nhật cả cột name và cột geojson)
+        const { error } = await supabaseClient
+            .from('web_map_features')
+            .update({ 
+                name: finalName, 
+                geojson: geojson 
+            })
+            .eq('id', id);
+
+        if (error) throw error;
+
+        console.log(`✅ Đã đổi tên đối tượng #${id} thành: ${finalName}`);
+        if (typeof showNotification === 'function') showNotification('✅ Đã đổi tên thành công!');
+
+    } catch (err) {
+        console.error("❌ Lỗi khi đổi tên:", err);
+        alert("Lỗi: Không thể lưu tên mới vào CSDL.");
+        
+        // Hoàn tác (Rollback) lại tên cũ trên giao diện nếu Database bị lỗi mạng
+        if (nameSpan) nameSpan.innerText = currentName;
     }
 }
