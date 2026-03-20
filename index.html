@@ -95,7 +95,7 @@
       <div class="upload-tab-content" id="tab-vector">
         <label class="upload-btn">
           <i class="fa-solid fa-upload"></i> Chọn file GeoJSON / JSON
-          <input type="file" id="geojson-upload" accept=".geojson,.json" hidden />
+          <input type="file" id="geojson-upload" accept=".geojson,.json,.kml,.zip" hidden />
         </label>
         <div id="upload-info"></div>
       </div>
@@ -153,6 +153,8 @@
 <script src="https://cdn.jsdelivr.net/npm/geotiff@2.1.3/dist-browser/geotiff.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/proj4js/2.9.0/proj4.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://unpkg.com/@mapbox/togeojson"></script>
+<script src="https://unpkg.com/shpjs@latest/dist/shp.js"></script>
 
   <script src="js/config.js"></script>
   <script src="js/map.js"></script>

@@ -23,93 +23,115 @@ const rasterControls = document.getElementById('raster-controls');
 const rasterOpacity = document.getElementById('raster-opacity');
 const opacityVal = document.getElementById('opacity-val');
 
-// ======================================================
-// 3. VECTOR - XỬ LÝ GEOJSON
-// ======================================================
-// ======================================================
-// 3. VECTOR - XỬ LÝ GEOJSON (ĐÃ NÂNG CẤP BÓC TÁCH DB)
-// ======================================================
-geojsonInput.addEventListener('change', function(e) {
+// ===================================================================
+// 3. VECTOR - XỬ LÝ GEOJSON, KML, SHAPEFILE (ZIP) & LƯU DB
+// ===================================================================
+geojsonInput.addEventListener('change', async function(e) {
     const file = e.target.files[0];
     if (!file) return;
 
-    if (!file.name.match(/\.(geojson|json)$/i)) {
-        uploadInfo.innerHTML = '<span style="color:#e53e3e">⚠ Chỉ hỗ trợ file .geojson hoặc .json</span>';
+    const ext = file.name.split('.').pop().toLowerCase();
+    const allowedExts = ['geojson', 'json', 'kml', 'zip'];
+
+    if (!allowedExts.includes(ext)) {
+        uploadInfo.innerHTML = '<span style="color:#e53e3e">⚠ Chỉ hỗ trợ .geojson, .json, .kml hoặc .zip (Shapefile)</span>';
         return;
     }
 
-    // Vẫn lưu trữ nguyên file gốc lên Storage (backup)
-    saveLayerToSupabase(file, 'vector');
+    uploadInfo.innerHTML = `<div style="color:#d69e2e;font-size:0.8rem">⏳ Đang đọc và phiên dịch file <strong>${file.name}</strong>...</div>`;
 
-    const reader = new FileReader();
-    // THAY ĐỔI: Thêm async vào đây để dùng được await Supabase
-    reader.onload = async function(ev) {
-        try {
-            const geojson = JSON.parse(ev.target.result);
-            if (uploadedVectorLayer) map.removeLayer(uploadedVectorLayer);
+    // Lưu trữ nguyên file gốc lên Storage để backup
+    if (typeof saveLayerToSupabase === 'function') {
+        saveLayerToSupabase(file, 'vector');
+    }
 
-            // --- [NÂNG CẤP MỚI] THUẬT TOÁN BÓC TÁCH LƯU VÀO DB ---
-            if (geojson.features && geojson.features.length > 0) {
-                const confirmSave = confirm(`Tìm thấy ${geojson.features.length} đối tượng trong file này. Bạn có muốn bóc tách và lưu tất cả vào Database không?`);
-                
-                if (confirmSave) {
-                    uploadInfo.innerHTML = `<div style="color:#d69e2e;font-size:0.8rem">⏳ Đang xử lý lưu ${geojson.features.length} đối tượng...</div>`;
-                    
-                    // Tạo mảng dữ liệu để Bulk Insert (Thêm nhiều dòng cùng lúc)
-                    const insertData = geojson.features.map((feat, index) => {
-                        // Ưu tiên lấy tên từ Properties (VD: cột 'Name', 'Ten', 'MaDat'...)
-                        const props = feat.properties || {};
-                        const featureName = props.Name || props.name || props.Ten || props.id || `Đối tượng từ ${file.name} (#${index+1})`;
-                        
-                        return {
-                            name: featureName,
-                            feature_type: feat.geometry.type,
-                            geojson: feat
-                        };
-                    });
+    try {
+        let geojson = null;
 
-                    // Gọi lệnh Insert vào Supabase
-                    const { error } = await supabaseClient
-                        .from('web_map_features')
-                        .insert(insertData);
-
-                    if (error) throw error;
-                    console.log(`✅ Đã bóc tách và lưu ${geojson.features.length} đối tượng vào DB.`);
-                }
+        // --- THUẬT TOÁN PHIÊN DỊCH ĐA ĐỊNH DẠNG ---
+        if (ext === 'geojson' || ext === 'json') {
+            const text = await file.text();
+            geojson = JSON.parse(text);
+        } 
+        else if (ext === 'kml') {
+            const text = await file.text();
+            const dom = new DOMParser().parseFromString(text, 'text/xml');
+            geojson = toGeoJSON.kml(dom); // Dùng thư viện togeojson
+        } 
+        else if (ext === 'zip') {
+            const buffer = await file.arrayBuffer();
+            geojson = await shp(buffer); // Dùng thư viện shpjs giải nén và đọc Shapefile
+            
+            // Xử lý trường hợp 1 file zip chứa nhiều layer shapefile bên trong
+            if (Array.isArray(geojson)) {
+                let combinedFeatures = [];
+                geojson.forEach(g => combinedFeatures = combinedFeatures.concat(g.features || []));
+                geojson = { type: "FeatureCollection", features: combinedFeatures };
             }
-            // --- KẾT THÚC PHẦN NÂNG CẤP ---
+        }
 
-            let featureCount = 0;
-            uploadedVectorLayer = L.geoJSON(geojson, {
-                style: { color: '#7c3aed', fillColor: '#7c3aed', fillOpacity: 0.15, weight: 2 },
-                pointToLayer: (feature, latlng) => L.circleMarker(latlng, {
-                    radius: 7, fillColor: '#7c3aed', color: 'white', weight: 2, opacity: 1, fillOpacity: 0.9
-                }),
-                onEachFeature: function(feature, layer) {
-                    featureCount++;
-                    const props = feature.properties;
-                    if (props && Object.keys(props).length > 0) {
-                        let rows = Object.entries(props)
-                            .filter(([k, v]) => v !== null && v !== undefined && v !== '')
-                            .map(([k, v]) => `<tr><td><b>${k}</b></td><td>${v}</td></tr>`).join('');
-                        if (rows) {
-                            layer.bindPopup(`<strong>📋 Thuộc tính</strong><table style="width:100%;font-size:0.75rem">${rows}</table>`, { maxWidth: 280 });
-                        }
+        if (!geojson || !geojson.features) throw new Error("Dữ liệu không hợp lệ hoặc rỗng.");
+
+        if (uploadedVectorLayer) map.removeLayer(uploadedVectorLayer);
+
+        // --- THUẬT TOÁN BÓC TÁCH & LƯU VÀO DB (Đã làm ở bài trước) ---
+        if (geojson.features.length > 0) {
+            const confirmSave = confirm(`Tìm thấy ${geojson.features.length} đối tượng từ file ${ext.toUpperCase()}. Bạn có muốn bóc tách và lưu tất cả vào Database không?`);
+            
+            if (confirmSave) {
+                uploadInfo.innerHTML = `<div style="color:#d69e2e;font-size:0.8rem">⏳ Đang lưu ${geojson.features.length} đối tượng vào Database...</div>`;
+                
+                const insertData = geojson.features.map((feat, index) => {
+                    const props = feat.properties || {};
+                    // Cố gắng tìm tên thông minh từ các cột phổ biến
+                    const featureName = props.Name || props.name || props.Ten || props.TEN || props.id || `Đối tượng từ ${file.name} (#${index+1})`;
+                    
+                    return {
+                        name: featureName,
+                        feature_type: feat.geometry ? feat.geometry.type : 'Unknown',
+                        geojson: feat
+                    };
+                });
+
+                // Chèn hàng loạt vào DB
+                const { error } = await supabaseClient.from('web_map_features').insert(insertData);
+                if (error) throw error;
+                console.log(`✅ Đã bóc tách và lưu ${geojson.features.length} đối tượng vào DB.`);
+            }
+        }
+
+        // --- HIỂN THỊ LÊN BẢN ĐỒ LEAFLET ---
+        let featureCount = 0;
+        uploadedVectorLayer = L.geoJSON(geojson, {
+            style: { color: '#7c3aed', fillColor: '#7c3aed', fillOpacity: 0.15, weight: 2 },
+            pointToLayer: (feature, latlng) => L.circleMarker(latlng, {
+                radius: 6, fillColor: '#7c3aed', color: 'white', weight: 2, opacity: 1, fillOpacity: 0.9
+            }),
+            onEachFeature: function(feature, layer) {
+                featureCount++;
+                const props = feature.properties;
+                if (props && Object.keys(props).length > 0) {
+                    let rows = Object.entries(props)
+                        .filter(([k, v]) => v !== null && v !== undefined && v !== '')
+                        .map(([k, v]) => `<tr><td style="border-bottom:1px solid #e2e8f0; padding:4px;"><b>${k}</b></td><td style="border-bottom:1px solid #e2e8f0; padding:4px;">${v}</td></tr>`).join('');
+                    if (rows) {
+                        layer.bindPopup(`<strong style="color:#2d3748;">📋 Thuộc tính</strong><div style="max-height:200px; overflow-y:auto; margin-top:8px;"><table style="width:100%;font-size:0.8rem; border-collapse:collapse;">${rows}</table></div>`, { maxWidth: 300 });
                     }
                 }
-            }).addTo(map);
+            }
+        }).addTo(map);
 
-            const bounds = uploadedVectorLayer.getBounds();
-            if (bounds.isValid()) map.fitBounds(bounds, { padding: [30, 30] });
+        // Zoom map vừa vặn với toàn bộ dữ liệu
+        const bounds = uploadedVectorLayer.getBounds();
+        if (bounds.isValid()) map.fitBounds(bounds, { padding: [30, 30] });
 
-            uploadInfo.innerHTML = `<div style="color:#38a169;font-size:0.8rem">✅ <strong>${file.name}</strong> (${featureCount} đối tượng) - Đã đồng bộ DB</div>`;
-        } catch (err) {
-            console.error(err);
-            uploadInfo.innerHTML = '<span style="color:#e53e3e">⚠ Lỗi khi xử lý file JSON hoặc Lưu DB</span>';
-        }
-    };
-    reader.readAsText(file);
-    this.value = ''; // Xóa input sau khi load xong
+        uploadInfo.innerHTML = `<div style="color:#38a169;font-size:0.85rem">✅ <strong>${file.name}</strong> (${featureCount} đối tượng) - Đã xử lý xong.</div>`;
+
+    } catch (err) {
+        console.error(err);
+        uploadInfo.innerHTML = `<span style="color:#e53e3e">⚠ Lỗi khi xử lý file: ${err.message}</span>`;
+    }
+    this.value = ''; // Reset input
 });
 
 // ======================================================
