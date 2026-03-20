@@ -384,7 +384,6 @@ function getTypeIcon(type) {
   return icons[type] || 'fa-map-pin';
 }
 
-// --- NÂNG CẤP GIAO DIỆN: Thêm nút chọn màu vào Sidebar ---
 // --- NÂNG CẤP GIAO DIỆN: Thêm nút Đưa lên/Đưa xuống ---
 function addFeatureToList(id, type, label) {
   const container = document.getElementById('features-list');
@@ -415,16 +414,14 @@ function addFeatureToList(id, type, label) {
       <button class="feat-action-btn" onclick="bringFeatureToFront(${id})" title="Đưa lên trên cùng" style="background:none; border:none; cursor:pointer; color:#4a5568;">
         <i class="fa-solid fa-arrow-up"></i>
       </button>
-      
       <button class="feat-action-btn" onclick="sendFeatureToBack(${id})" title="Đưa xuống dưới cùng" style="background:none; border:none; cursor:pointer; color:#4a5568;">
         <i class="fa-solid fa-arrow-down"></i>
       </button>
-
       <input type="color" value="${currentColor}" 
              style="border:none; width:24px; height:24px; cursor:pointer; padding:0; background:transparent;" 
              onchange="changeFeatureColor(${id}, this.value, '${type}')" 
              title="Đổi màu sắc">
-      <button class="feat-del-btn" onclick="deleteFeature(${id})" title="Xóa">
+      <button class="feat-del-btn" onclick="deleteFeature(${id})" title="Xóa" style="border:none; background:none; cursor:pointer; color:#e53e3e;">
         <i class="fa-solid fa-times"></i>
       </button>
     </div>
@@ -438,55 +435,8 @@ function addFeatureToList(id, type, label) {
     }
   });
 
-  // Khi thêm mới, luôn chèn vào đầu danh sách (vì nó nằm trên cùng của map)
+  // Chèn vào đầu danh sách
   container.insertBefore(item, container.firstChild);
-}function addFeatureToList(id, type, label) {
-  const container = document.getElementById('features-list');
-  const emptyMsg = container.querySelector('.empty-msg');
-  if (emptyMsg) emptyMsg.remove();
-
-  // Tìm màu hiện tại nếu đã có trong GeoJSON, nếu chưa thì dùng màu mặc định
-  let currentColor = '#3388ff'; 
-  const layer = featureMap[id];
-  if (layer && layer.feature && layer.feature.properties && layer.feature.properties.customColor) {
-      currentColor = layer.feature.properties.customColor;
-  } else if (type === 'marker') {
-      currentColor = '#e53e3e';
-  }
-
-  const item = document.createElement('div');
-  item.className = 'feature-item';
-  item.id = `feat-${id}`;
-  item.style.display = 'flex';
-  item.style.justifyContent = 'space-between';
-  item.style.alignItems = 'center';
-  
-  item.innerHTML = `
-    <div class="feat-info" style="cursor:pointer; flex: 1;">
-      <i class="fa-solid ${getTypeIcon(type)}"></i>
-      <span>${label}</span>
-    </div>
-    <div class="feat-actions" style="display: flex; gap: 8px; align-items: center;">
-      <input type="color" value="${currentColor}" 
-             style="border:none; width:24px; height:24px; cursor:pointer; padding:0; background:transparent;" 
-             onchange="changeFeatureColor(${id}, this.value, '${type}')" 
-             title="Đổi màu sắc">
-      <button class="feat-del-btn" onclick="deleteFeature(${id})" title="Xóa">
-        <i class="fa-solid fa-times"></i>
-      </button>
-    </div>
-  `;
-
-  // Click để zoom
-  item.querySelector('.feat-info').addEventListener('click', function() {
-    if (layer) {
-      if (layer.getLatLng) map.setView(layer.getLatLng(), 15);
-      else if (layer.getBounds) map.fitBounds(layer.getBounds(), { padding: [30, 30] });
-      layer.openPopup && layer.openPopup();
-    }
-  });
-
-  container.appendChild(item);
 }
 
 // --- NÂNG CẤP LOGIC: Đưa đối tượng lên trên cùng ---
