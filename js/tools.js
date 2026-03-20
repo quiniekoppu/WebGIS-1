@@ -31,14 +31,14 @@ const drawOptions = {
 };
 
 // -------- MARKER --------
-function addMarker(latlng) {
+async function addMarker(latlng) {
   const id = ++featureCount;
   const marker = L.marker(latlng, {
     icon: L.divIcon({
       className: '',
       html: `<div style="
         width:14px;height:14px;
-        background:${CONFIG.drawColors.stroke};
+        background:${CONFIG.drawColors?.stroke || '#e53e3e'};
         border:2px solid white;
         border-radius:50%;
         box-shadow:0 2px 6px rgba(0,0,0,0.3)
@@ -48,17 +48,45 @@ function addMarker(latlng) {
     })
   });
 
+  // 1. Hỏi tên Điểm
+  let featureName = window.prompt(`Nhập tên cho Điểm vừa đánh dấu:`, `Điểm mới`);
+  if (featureName === null) return; // Hủy nếu bấm Cancel
+  if (featureName.trim() === "") featureName = `Điểm mới`;
+
   const popupContent = `
-    <strong>📍 Điểm #${id}</strong><br/>
+    <strong>📍 ${featureName}</strong><br/>
     Lat: ${latlng.lat.toFixed(5)}<br/>
     Lng: ${latlng.lng.toFixed(5)}
   `;
   marker.bindPopup(popupContent);
-  marker.addTo(drawnItems);
+  drawnItems.addLayer(marker);
 
   featureMap[id] = marker;
-  addFeatureToList(id, 'marker', `Điểm #${id}`);
+  addFeatureToList(id, 'marker', featureName);
   deactivateAllTools();
+
+  // 2. Lưu vào Database
+  const featureData = {
+      name: featureName,
+      feature_type: 'marker',
+      geojson: marker.toGeoJSON()
+  };
+
+  try {
+      const { error } = await supabaseClient
+          .from('web_map_features')
+          .insert([featureData]);
+      
+      if (!error) {
+          console.log("✅ Đã lưu Điểm vào DB");
+          if (typeof showNotification === 'function') showNotification('Đã lưu Điểm vào cơ sở dữ liệu!');
+      } else {
+          throw error;
+      }
+  } catch (err) {
+      console.error("❌ Lỗi lưu Điểm:", err);
+      alert("Lỗi: Không thể lưu Điểm vào CSDL.");
+  }
 }
 
 // -------- ACTIVATE TOOL --------
@@ -109,7 +137,7 @@ function deactivateAllTools() {
   });
 }
 
-// -------- DRAW EVENTS (NÂNG CẤP: LƯU TÊN VÀO DB) --------
+// -------- DRAW EVENTS --------
 map.on(L.Draw.Event.CREATED, async function (e) {
     const id = ++featureCount;
     const type = e.layerType;
@@ -117,19 +145,18 @@ map.on(L.Draw.Event.CREATED, async function (e) {
     
     drawnItems.addLayer(layer);
 
-    // --- Yêu cầu người dùng nhập tên trước khi lưu ---
     let featureName = window.prompt(`Nhập tên cho đối tượng ${getTypeLabel(type)} vừa vẽ:`, `Đối tượng ${type} mới`);
-    
-    // Nếu người dùng bấm Cancel, bỏ qua không lưu
     if (featureName === null) {
         drawnItems.removeLayer(layer);
         return; 
     }
     if (featureName.trim() === "") featureName = `Đối tượng ${type} mới`;
 
-    // Cập nhật Popup với tên vừa nhập
     let info = `<strong>${featureName}</strong><br/>`;
     
+    // Khởi tạo geojson mặc định
+    let geojson = layer.toGeoJSON();
+
     if (type === 'polyline') {
       const dist = calculatePolylineLength(layer);
       info += `Độ dài: <b>${formatDistance(dist)}</b>`;
@@ -139,6 +166,11 @@ map.on(L.Draw.Event.CREATED, async function (e) {
     } else if (type === 'circle') {
       const r = layer.getRadius();
       info += `Bán kính: <b>${formatDistance(r)}</b>`;
+      
+      // THUẬT TOÁN MỚI: Ép hình tròn thành GeoJSON Polygon (64 đỉnh)
+      geojson = generateCirclePolygonGeoJSON(layer.getLatLng(), r);
+      geojson.properties.isCircle = true; 
+      geojson.properties.radius = r;
     }
 
     layer.bindPopup(info);
@@ -148,11 +180,11 @@ map.on(L.Draw.Event.CREATED, async function (e) {
     addFeatureToList(id, type, featureName);
     deactivateAllTools();
 
-    // --- Lưu vào Database Supabase ---
     const featureData = {
         name: featureName,
-        feature_type: type,
-        geojson: layer.toGeoJSON()
+        // Nếu là circle thì lưu thẳng vào DB với mác là 'polygon'
+        feature_type: type === 'circle' ? 'polygon' : type,
+        geojson: geojson
     };
 
     try {
@@ -161,7 +193,7 @@ map.on(L.Draw.Event.CREATED, async function (e) {
             .insert([featureData]);
         
         if (!error) {
-            console.log("✅ Đã lưu đối tượng vẽ vào DB");
+            console.log(`✅ Đã lưu ${featureData.feature_type} vào DB`);
             if (typeof showNotification === 'function') showNotification('Đã lưu vào cơ sở dữ liệu!');
         } else {
             throw error;
@@ -526,4 +558,40 @@ async function toggleFeatureVisibility(id) {
 
         await supabaseClient.from('web_map_features').update({ geojson: geojson }).eq('id', id);
     } catch(e) { console.error("Lỗi lưu trạng thái Ẩn/Hiện:", e); }
+}
+
+// -------- HÀM BỔ TRỢ: CHUYỂN HÌNH TRÒN THÀNH ĐA GIÁC (POLYGON) --------
+function generateCirclePolygonGeoJSON(center, radiusMeters, numSegments = 64) {
+    const coords = [];
+    const earthRadius = 6378137; // Bán kính trái đất tính bằng mét
+    const pi = Math.PI;
+
+    // Đổi vĩ độ, kinh độ sang Radian
+    const lat0 = center.lat * pi / 180;
+    const lng0 = center.lng * pi / 180;
+
+    // Tính toán tọa độ của 64 đỉnh bao quanh hình tròn
+    for (let i = 0; i < numSegments; i++) {
+        const angle = (360 / numSegments * i) * pi / 180;
+        const dx = radiusMeters * Math.cos(angle);
+        const dy = radiusMeters * Math.sin(angle);
+
+        const lat = lat0 + (dy / earthRadius);
+        const lng = lng0 + (dx / (earthRadius * Math.cos(lat0)));
+
+        // Đổi lại sang Degree và push vào mảng [lng, lat]
+        coords.push([lng * 180 / pi, lat * 180 / pi]);
+    }
+    
+    // Điểm cuối cùng phải trùng với điểm đầu tiên để khép kín vùng Polygon
+    coords.push(coords[0]); 
+
+    return {
+        type: "Feature",
+        geometry: {
+            type: "Polygon",
+            coordinates: [coords]
+        },
+        properties: {}
+    };
 }
