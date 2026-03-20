@@ -24,7 +24,7 @@ const rasterOpacity = document.getElementById('raster-opacity');
 const opacityVal = document.getElementById('opacity-val');
 
 // ===================================================================
-// 3. VECTOR - XỬ LÝ GEOJSON, KML, SHAPEFILE (ZIP) & LƯU DB
+// 3. VECTOR - XỬ LÝ FILE GEOJSON/KML/SHAPEFILE VÀ BÓC TÁCH LƯU VÀO DB
 // ===================================================================
 geojsonInput.addEventListener('change', async function(e) {
     const file = e.target.files[0];
