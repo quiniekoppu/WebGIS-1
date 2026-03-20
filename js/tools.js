@@ -367,12 +367,12 @@ function addFeatureToList(id, type, label) {
   item.style.justifyContent = 'space-between';
   item.style.alignItems = 'center';
   
+  // --- TÌM ĐOẠN item.innerHTML = `...` TRONG HÀM addFeatureToList VÀ THAY BẰNG ĐOẠN NÀY ---
   item.innerHTML = `
     <div style="display:flex; align-items:center; flex:1;">
         <div class="feat-drag-handle" style="color: #cbd5e0; padding-right: 12px; cursor: grab;">
           <i class="fa-solid fa-grip-vertical"></i>
         </div>
-        
         <div class="feat-info" style="cursor:pointer; opacity: ${isVisible ? '1' : '0.5'}; transition: 0.3s;" id="feat-info-${id}">
           <i class="fa-solid ${getTypeIcon(type)}"></i>
           <span>${label}</span>
@@ -380,6 +380,10 @@ function addFeatureToList(id, type, label) {
     </div>
 
     <div class="feat-actions" style="display: flex; gap: 8px; align-items: center;">
+      <button class="feat-action-btn" onclick="reprojectFeature(${id})" title="Chuyển tọa độ (VN2000 -> WGS84)" style="background:none; border:none; cursor:pointer; color:#d69e2e;">
+        <i class="fa-solid fa-satellite-dish"></i>
+      </button>
+
       <button class="feat-action-btn" onclick="toggleFeatureVisibility(${id})" title="Ẩn/Hiện layer" style="background:none; border:none; cursor:pointer; color:${eyeColor};" id="toggle-btn-${id}">
         <i class="fa-solid ${eyeIcon}"></i>
       </button>
@@ -661,5 +665,117 @@ async function updateOrderAfterDrag() {
         }
     } catch (err) {
         console.error("❌ Lỗi khi đồng bộ Z-Index:", err);
+    }
+}
+
+// ===================================================================
+// THUẬT TOÁN CHUYỂN ĐỔI HỆ TỌA ĐỘ (CÓ AUTO-DETECT EPSG)
+// ===================================================================
+
+async function reprojectFeature(id) {
+    const layer = featureMap[id];
+    if (!layer) return;
+
+    // Lấy dữ liệu GeoJSON hiện tại
+    const geojson = layer.feature || layer.toGeoJSON();
+    let suggestedEpsg = "3405"; // Mặc định gợi ý VN2000
+
+    // --- TỰ ĐỘNG XÁC ĐỊNH HỆ TỌA ĐỘ (AUTO-DETECT) ---
+    // 1. Đọc từ metadata thuộc tính "crs" của file GeoJSON (nếu phần mềm QGIS/ArcGIS có lưu)
+    if (geojson.crs && geojson.crs.properties && geojson.crs.properties.name) {
+        const crsName = geojson.crs.properties.name;
+        const match = crsName.match(/EPSG::(\d+)/) || crsName.match(/EPSG:(\d+)/);
+        if (match) suggestedEpsg = match[1];
+    } else {
+        // 2. Quét thông minh qua tọa độ: Nếu kinh độ 100-110, vĩ độ 8-24 -> Khả năng cao đã là WGS84
+        const coords = geojson.geometry?.coordinates;
+        let sample = coords;
+        // Đào sâu vào mảng để lấy 1 cặp tọa độ [X, Y] đầu tiên
+        while (sample && sample.length > 0 && Array.isArray(sample[0])) sample = sample[0];
+        
+        if (sample && sample.length >= 2) {
+            const x = sample[0];
+            const y = sample[1];
+            // Nếu X nằm trong khoảng -180 đến 180 và Y nằm trong khoảng -90 đến 90
+            if (x >= -180 && x <= 180 && y >= -90 && y <= 90) {
+                suggestedEpsg = "4326";
+            }
+        }
+    }
+
+    // Chặn lại nếu dữ liệu đã là WGS84 chuẩn
+    if (suggestedEpsg === "4326") {
+        alert("Dữ liệu này đã ở hệ tọa độ chuẩn WGS84 (EPSG:4326) hoặc tọa độ hợp lệ, không cần chuyển đổi nữa.");
+        return;
+    }
+
+    // 3. Hỏi người dùng xác nhận lại mã hệ thống đã nhận diện
+    const epsgCode = prompt(
+        "Hệ thống tự động nhận diện mã EPSG gốc của dữ liệu này là:\n(Bạn có thể sửa lại nếu thấy hệ thống đoán chưa đúng)", 
+        suggestedEpsg
+    );
+    
+    if (!epsgCode) return; // Hủy nếu người dùng bấm Cancel
+
+    try {
+        if (typeof showNotification === 'function') showNotification('⏳ Đang tải thuật toán tọa độ...');
+
+        const res = await fetch(`https://epsg.io/${epsgCode}.proj4`);
+        if (!res.ok) throw new Error(`Không tìm thấy mã EPSG:${epsgCode} trên hệ thống quốc tế.`);
+        const proj4String = await res.text();
+
+        proj4.defs(`EPSG:${epsgCode}`, proj4String);
+
+        // Hàm đệ quy chuyển đổi tọa độ
+        function transformCoords(coords) {
+            if (typeof coords[0] === 'number') {
+                const transformed = proj4(`EPSG:${epsgCode}`, 'EPSG:4326', [coords[0], coords[1]]);
+                return [transformed[0], transformed[1]];
+            } else {
+                return coords.map(c => transformCoords(c));
+            }
+        }
+
+        if (geojson.geometry && geojson.geometry.coordinates) {
+            geojson.geometry.coordinates = transformCoords(geojson.geometry.coordinates);
+        }
+
+        // Cập nhật lên bản đồ
+        drawnItems.removeLayer(layer);
+        
+        const newLayerGroup = L.geoJSON(geojson, {
+            style: function(feature) {
+                const color = feature.properties?.customColor || CONFIG.drawColors?.stroke || '#3388ff';
+                return { color: color, fillColor: color, weight: 3, fillOpacity: 0.2 };
+            },
+            pointToLayer: (feature, latlng) => {
+                const color = feature.properties?.customColor || '#e53e3e';
+                return L.circleMarker(latlng, { radius: 6, color: 'white', weight: 2, fillColor: color, fillOpacity: 1 });
+            }
+        });
+
+        let newLayer;
+        newLayerGroup.eachLayer(l => newLayer = l); 
+        
+        if (!newLayer) throw new Error("Lỗi tái tạo hình học sau khi tính toán.");
+
+        newLayer.feature = geojson;
+        if (layer.getPopup()) newLayer.bindPopup(layer.getPopup().getContent());
+        
+        drawnItems.addLayer(newLayer);
+        featureMap[id] = newLayer; 
+
+        if (newLayer.getBounds) map.fitBounds(newLayer.getBounds(), { padding: [30, 30] });
+        else if (newLayer.getLatLng) map.setView(newLayer.getLatLng(), 15);
+
+        // Lưu DB
+        const { error } = await supabaseClient.from('web_map_features').update({ geojson: geojson }).eq('id', id);
+        if (error) throw error;
+
+        if (typeof showNotification === 'function') showNotification(`✅ Đã bay về chuẩn WGS84 thành công!`);
+
+    } catch (error) {
+        console.error("Lỗi chuyển tọa độ:", error);
+        alert("Lỗi: " + error.message);
     }
 }
