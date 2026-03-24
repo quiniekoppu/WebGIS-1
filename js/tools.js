@@ -138,6 +138,7 @@ function deactivateAllTools() {
 }
 
 // -------- DRAW EVENTS --------
+// -------- DRAW EVENTS (NÂNG CẤP TỰ ĐỘNG TÍNH & LƯU DIỆN TÍCH/CHIỀU DÀI) --------
 map.on(L.Draw.Event.CREATED, async function (e) {
     const id = ++featureCount;
     const type = e.layerType;
@@ -153,28 +154,41 @@ map.on(L.Draw.Event.CREATED, async function (e) {
     if (featureName.trim() === "") featureName = `Đối tượng ${type} mới`;
 
     let info = `<strong>${featureName}</strong><br/>`;
-    let geojson; // Khai báo biến chứa dữ liệu
+    
+    // 1. Tạo geojson gốc
+    let geojson = layer.toGeoJSON();
+    geojson.properties = geojson.properties || {};
 
+    // 2. Thuật toán tự động tính toán và GHI VÀO PROPERTIES
     if (type === 'polyline') {
       const dist = calculatePolylineLength(layer);
-      info += `Độ dài: <b>${formatDistance(dist)}</b>`;
-      geojson = layer.toGeoJSON();
+      const distStr = formatDistance(dist);
+      info += `Độ dài: <b>${distStr}</b>`;
+      geojson.properties['Chiều dài'] = distStr; // Lưu vĩnh viễn
+      
     } else if (type === 'polygon') {
       const area = L.GeometryUtil.geodesicArea(layer.getLatLngs()[0]);
-      info += `Diện tích: <b>${formatArea(area)}</b>`;
-      geojson = layer.toGeoJSON();
+      const areaStr = formatArea(area);
+      info += `Diện tích: <b>${areaStr}</b>`;
+      geojson.properties['Diện tích'] = areaStr; // Lưu vĩnh viễn
+
     } else if (type === 'circle') {
       const r = layer.getRadius();
-      info += `Bán kính: <b>${formatDistance(r)}</b>`;
+      const area = Math.PI * r * r; // Diện tích hình tròn = Pi * R^2
+      const rStr = formatDistance(r);
+      const areaStr = formatArea(area);
       
-      // Chuyển hình tròn thành Đa giác
+      info += `Bán kính: <b>${rStr}</b><br>Diện tích: <b>${areaStr}</b>`;
+      
+      // Chuyển hình tròn thành Đa giác để lưu DB chuẩn
       geojson = generateCirclePolygonGeoJSON(layer.getLatLng(), r);
       geojson.properties = geojson.properties || {};
       geojson.properties.isCircle = true; 
-      geojson.properties.radius = r;
+      geojson.properties['Bán kính'] = rStr;
+      geojson.properties['Diện tích'] = areaStr;
     }
 
-    // 🔥 QUAN TRỌNG: Gắn cứng dữ liệu vào layer để không bị hàm mặc định ghi đè
+    // Gắn cứng dữ liệu vào layer
     layer.feature = geojson;
 
     layer.bindPopup(info);
@@ -184,6 +198,7 @@ map.on(L.Draw.Event.CREATED, async function (e) {
     addFeatureToList(id, type, featureName);
     deactivateAllTools();
 
+    // 3. Lưu toàn bộ vào DB
     const featureData = {
         name: featureName,
         feature_type: type === 'circle' ? 'polygon' : type,
@@ -193,11 +208,13 @@ map.on(L.Draw.Event.CREATED, async function (e) {
     try {
         const { error } = await supabaseClient.from('web_map_features').insert([featureData]);
         if (!error) {
-            console.log(`✅ Đã lưu ${featureData.feature_type} vào DB`);
+            console.log(`✅ Đã lưu đối tượng (kèm thông số đo đạc) vào DB`);
             if (typeof showNotification === 'function') showNotification('Đã lưu vào cơ sở dữ liệu!');
         } else throw error;
     } catch (err) { console.error("❌ Lỗi lưu đối tượng:", err); }
 });
+      
+
 
 // -------- MEASURE (ĐO ĐẠC KHOẢNG CÁCH) --------
 let measurePolyline = null;
@@ -367,35 +384,47 @@ function addFeatureToList(id, type, label) {
   item.style.justifyContent = 'space-between';
   item.style.alignItems = 'center';
   
+  // --- BÊN TRONG HÀM addFeatureToList, THAY THẾ PHẦN item.innerHTML BẰNG ĐOẠN NÀY ---
+
+  // Trích xuất Diện tích hoặc Chiều dài từ properties để in ra Sidebar
+  let metricHtml = '';
+  if (layer && layer.feature && layer.feature.properties) {
+      const props = layer.feature.properties;
+      if (props['Diện tích']) {
+          metricHtml = `<div style="font-size: 0.7rem; color: #a0aec0; margin-top: 2px;">S: ${props['Diện tích']}</div>`;
+      } else if (props['Chiều dài']) {
+          metricHtml = `<div style="font-size: 0.7rem; color: #a0aec0; margin-top: 2px;">L: ${props['Chiều dài']}</div>`;
+      }
+  }
+
   item.innerHTML = `
     <div style="display:flex; align-items:center; flex:1; overflow:hidden;">
         <div class="feat-drag-handle" style="color: #cbd5e0; padding-right: 12px; cursor: grab;">
           <i class="fa-solid fa-grip-vertical"></i>
         </div>
         <div class="feat-info" style="cursor:pointer; opacity: ${isVisible ? '1' : '0.5'}; transition: 0.3s; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" id="feat-info-${id}">
-          <i class="fa-solid ${getTypeIcon(type)}"></i>
-          <span id="feat-name-${id}">${label}</span>
+          <div style="display: flex; align-items: center; gap: 6px;">
+            <i class="fa-solid ${getTypeIcon(type)}"></i>
+            <span id="feat-name-${id}" style="font-weight: 500;">${label}</span>
+          </div>
+          ${metricHtml}
         </div>
     </div>
 
     <div class="feat-actions" style="display: flex; gap: 8px; align-items: center; padding-left: 8px;">
-      <button class="feat-action-btn" onclick="renameFeature(${id})" title="Đổi tên đối tượng" style="background:none; border:none; cursor:pointer; color:#3182ce;">
+      <button class="feat-action-btn" onclick="renameFeature(${id})" title="Đổi tên" style="background:none; border:none; cursor:pointer; color:#3182ce;">
         <i class="fa-solid fa-pen"></i>
       </button>
-
       <button class="feat-action-btn" onclick="reprojectFeature(${id})" title="Chuyển tọa độ" style="background:none; border:none; cursor:pointer; color:#d69e2e;">
         <i class="fa-solid fa-satellite-dish"></i>
       </button>
-
-      <button class="feat-action-btn" onclick="toggleFeatureVisibility(${id})" title="Ẩn/Hiện layer" style="background:none; border:none; cursor:pointer; color:${eyeColor};" id="toggle-btn-${id}">
+      <button class="feat-action-btn" onclick="toggleFeatureVisibility(${id})" title="Ẩn/Hiện" style="background:none; border:none; cursor:pointer; color:${eyeColor};" id="toggle-btn-${id}">
         <i class="fa-solid ${eyeIcon}"></i>
       </button>
-      
       <input type="color" value="${currentColor}" 
              style="border:none; width:24px; height:24px; cursor:pointer; padding:0; background:transparent;" 
              onchange="changeFeatureColor(${id}, this.value, '${type}')" 
-             title="Đổi màu sắc">
-             
+             title="Đổi màu">
       <button class="feat-del-btn" onclick="deleteFeature(${id})" title="Xóa" style="border:none; background:none; cursor:pointer; color:#e53e3e;">
         <i class="fa-solid fa-times"></i>
       </button>
