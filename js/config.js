@@ -1,5 +1,7 @@
 // ===== CONFIG.JS - Cấu hình ứng dụng WebGIS =====
 
+// ===== CONFIG.JS - Cấu hình ứng dụng WebGIS =====
+
 const CONFIG = {
   // Tọa độ trung tâm mặc định (Việt Nam)
   defaultCenter: [16.0, 106.0],
@@ -34,6 +36,14 @@ const CONFIG = {
         attribution: '© CartoDB',
         maxZoom: 19
       }
+    },
+    // THÊM VÀO ĐÂY: Bản đồ "Không có gì"
+    none: {
+      url: 'none', 
+      options: {
+        attribution: '',
+        maxZoom: 22
+      }
     }
   },
 
@@ -43,6 +53,7 @@ const CONFIG = {
     fill: '#1a6eb5',
     fillOpacity: 0.2
   },
+
 
   // Nominatim search API
   searchApi: 'https://nominatim.openstreetmap.org/search'
