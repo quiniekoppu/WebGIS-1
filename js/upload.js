@@ -147,27 +147,35 @@ rasterInput.addEventListener('change', async function(e) {
             let bounds = null;
 
             if (ext === 'tif' || ext === 'tiff') {
-                const arrayBuffer = await file.arrayBuffer();
-                const tiff = await GeoTIFF.fromArrayBuffer(arrayBuffer);
-                const image = await tiff.getImage(); 
-                const bbox = image.getBoundingBox();
-                bounds = [[bbox[1], bbox[0]], [bbox[3], bbox[2]]];
+                // --- ĐOẠN MỚI: DÙNG SUPABASE SDK ĐỂ LÁCH LUẬT CORS ---
+                // Cắt lấy đường dẫn gốc của file trong Storage
+                const filePath = r.file_url.split('/raster_files/')[1]; 
                 
-                // Vẽ tạm canvas để hiện ngay lập tức
+                // Dùng đường ống nội bộ của Supabase để tải dữ liệu nhị phân
+                const { data: fileBlob, error: downloadErr } = await supabaseClient.storage
+                    .from('raster_files')
+                    .download(filePath);
+                
+                if (downloadErr) throw new Error("Lỗi tải ngầm TIF: " + downloadErr.message);
+                
+                const arrayBuffer = await fileBlob.arrayBuffer();
+                // --- KẾT THÚC ĐOẠN LÁCH LUẬT ---
+
+                const tiff = await GeoTIFF.fromArrayBuffer(arrayBuffer);
+                const image = await tiff.getImage();
                 const rasters = await image.readRasters({ interleave: false });
                 const canvas = document.createElement('canvas');
                 canvas.width = image.getWidth(); canvas.height = image.getHeight();
                 const ctx = canvas.getContext('2d');
                 const imgData = ctx.createImageData(canvas.width, canvas.height);
-                if (rasters.length >= 3) {
-                    for (let j = 0; j < canvas.width * canvas.height; j++) {
-                        imgData.data[j*4] = rasters[0][j]; imgData.data[j*4+1] = rasters[1][j];
-                        imgData.data[j*4+2] = rasters[2][j]; imgData.data[j*4+3] = 255;
-                    }
+                for (let j = 0; j < canvas.width * canvas.height; j++) {
+                    imgData.data[j*4] = rasters[0][j]; imgData.data[j*4+1] = rasters[1][j];
+                    imgData.data[j*4+2] = rasters[2][j]; imgData.data[j*4+3] = 255;
                 }
                 ctx.putImageData(imgData, 0, 0);
-                overlayLayer = L.imageOverlay(canvas.toDataURL(), bounds, { opacity: 0.9, interactive: true });
+                overlayLayer = L.imageOverlay(canvas.toDataURL(), r.bounds, { opacity: 0.9, interactive: true });
             } else {
+                
                 bounds = map.getBounds();
                 overlayLayer = L.imageOverlay(publicUrl, bounds, { opacity: 0.9, interactive: true });
             }
