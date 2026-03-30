@@ -72,3 +72,41 @@ app.post('/api/upload-raster', upload.array('files', 10), (req, res) => {
 app.use('/uploads', express.static(uploadDir));
 
 app.listen(3000, () => console.log('Server running on port 3000'));
+
+// =========================================================
+// DATABASE MINI CHO RASTER (Lưu siêu dữ liệu vào file JSON)
+// =========================================================
+const dbPath = path.join(__dirname, 'raster_metadata.json');
+
+// Khởi tạo file JSON nếu chưa có
+if (!fs.existsSync(dbPath)) {
+    fs.writeFileSync(dbPath, '[]');
+}
+
+// 1. API Lấy danh sách ảnh đã lưu
+app.get('/api/rasters', (req, res) => {
+    try {
+        const data = JSON.parse(fs.readFileSync(dbPath, 'utf8'));
+        res.json(data);
+    } catch (err) { res.status(500).json({ error: "Lỗi đọc DB" }); }
+});
+
+// 2. API Lưu thông tin ảnh mới (Tọa độ, Tên, URL)
+app.post('/api/rasters', (req, res) => {
+    try {
+        const data = JSON.parse(fs.readFileSync(dbPath, 'utf8'));
+        data.push(req.body); // Thêm ảnh mới vào mảng
+        fs.writeFileSync(dbPath, JSON.stringify(data, null, 2));
+        res.json({ success: true });
+    } catch (err) { res.status(500).json({ error: "Lỗi ghi DB" }); }
+});
+
+// 3. API Xóa thông tin ảnh
+app.delete('/api/rasters/:id', (req, res) => {
+    try {
+        let data = JSON.parse(fs.readFileSync(dbPath, 'utf8'));
+        data = data.filter(r => r.id !== req.params.id); // Lọc bỏ ảnh bị xóa
+        fs.writeFileSync(dbPath, JSON.stringify(data, null, 2));
+        res.json({ success: true });
+    } catch (err) { res.status(500).json({ error: "Lỗi xóa DB" }); }
+});

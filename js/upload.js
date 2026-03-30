@@ -215,7 +215,24 @@ rasterInput.addEventListener('change', async function(e) {
                 const bounds = map.getBounds();
                 overlayLayer = L.imageOverlay(savedUrl, bounds, { opacity: 0.9, interactive: true });
                 map.fitBounds(bounds);
+                const rasterMetadata = {
+                    id: rId.toString() + Date.now(), // Tạo ID độc nhất
+                    ui_id: rId,
+                    name: file.name,
+                    url: savedUrl,
+                    bounds: bounds,
+                    ext: ext
+                };
 
+                // Gắn db_id vào thẻ HTML để sau này biết đường mà xóa
+                document.getElementById(`raster-item-${rId}`).dataset.dbId = rasterMetadata.id;
+
+                fetch('http://localhost:3000/api/rasters', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(rasterMetadata)
+                });
+            
             } else if (ext === 'dat') {
                 alert(`Đã lưu file ${file.name} vào máy chủ, nhưng trình duyệt không thể vẽ định dạng .dat trực tiếp.`);
                 continue; // Bỏ qua hiển thị
@@ -237,6 +254,7 @@ rasterInput.addEventListener('change', async function(e) {
     }
     
     this.value = ''; // Reset
+    
 });
 
 // ===================================================================
@@ -320,14 +338,23 @@ function renameRasterLayer(id) {
     if (newName && newName.trim()) nameSpan.innerText = newName.trim();
 }
 
-function deleteRasterLayer(id) {
-    if (!confirm('Xóa ảnh này khỏi bản đồ? (Ảnh gốc vẫn lưu trong thư mục uploads của Node.js)')) return;
+async function deleteRasterLayer(id) {
+    if (!confirm('Xóa ảnh này khỏi bản đồ?')) return;
     if (rasterLayerMap[id]) {
+        // Lấy DB ID đã cất giấu trong thẻ HTML
+        const item = document.getElementById(`raster-item-${id}`);
+        const dbId = item.dataset.dbId;
+
+        // Xóa trên giao diện
         map.removeLayer(rasterLayerMap[id]);
         delete rasterLayerMap[id];
-        const item = document.getElementById(`raster-item-${id}`);
         if (item) item.remove();
         
+        // --- ĐOẠN MỚI: Gọi API xóa khỏi Node.js ---
+        if (dbId) {
+            await fetch(`http://localhost:3000/api/rasters/${dbId}`, { method: 'DELETE' });
+        }
+
         if (document.getElementById('rasters-list').children.length === 0) {
             document.getElementById('rasters-list').innerHTML = '<p class="empty-msg">Chưa có ảnh nào</p>';
         }
@@ -484,3 +511,61 @@ async function saveLayerToSupabase(file, type, metadata = {}) {
         console.error("❌ Lỗi lưu trữ Supabase:", err.message);
     }
 }
+
+// ===================================================================
+// THUẬT TOÁN KHÔI PHỤC RASTER TỪ DATABASE KHI TẢI LẠI TRANG
+// ===================================================================
+async function loadSavedRasters() {
+    try {
+        const res = await fetch('http://localhost:3000/api/rasters');
+        const savedRasters = await res.json();
+
+        for (let r of savedRasters) {
+            const rId = ++rasterIdCounter;
+            let overlayLayer = null;
+
+            // Nếu là TIF, phải dùng thư viện GeoTIFF dịch lại thành Canvas
+            if (r.ext === 'tif' || r.ext === 'tiff') {
+                const tifRes = await fetch(r.url);
+                const arrayBuffer = await tifRes.arrayBuffer();
+                const tiff = await GeoTIFF.fromArrayBuffer(arrayBuffer);
+                const image = await tiff.getImage();
+                const rasters = await image.readRasters({ interleave: false });
+                
+                const canvas = document.createElement('canvas');
+                canvas.width = image.getWidth(); canvas.height = image.getHeight();
+                const ctx = canvas.getContext('2d');
+                const imgData = ctx.createImageData(canvas.width, canvas.height);
+                
+                if (rasters.length >= 3) {
+                    for (let j = 0; j < canvas.width * canvas.height; j++) {
+                        imgData.data[j*4] = rasters[0][j];
+                        imgData.data[j*4+1] = rasters[1][j];
+                        imgData.data[j*4+2] = rasters[2][j];
+                        imgData.data[j*4+3] = 255;
+                    }
+                }
+                ctx.putImageData(imgData, 0, 0);
+                overlayLayer = L.imageOverlay(canvas.toDataURL(), r.bounds, { opacity: 0.9, interactive: true });
+            
+            // Nếu là JPG/PNG, đưa thẳng link ảnh vào bản đồ
+            } else if (r.ext === 'jpg' || r.ext === 'jpeg' || r.ext === 'png') {
+                overlayLayer = L.imageOverlay(r.url, r.bounds, { opacity: 0.9, interactive: true });
+            }
+
+            // Đưa lên bản đồ và Sidebar
+            if (overlayLayer) {
+                overlayLayer.addTo(map);
+                rasterLayerMap[rId] = overlayLayer;
+                addRasterToSidebar(rId, r.name);
+                // Gắn lại dbId cho thẻ HTML để có thể xóa
+                document.getElementById(`raster-item-${rId}`).dataset.dbId = r.id;
+            }
+        }
+    } catch (err) {
+        console.log("Không có dữ liệu Raster lưu trước đó hoặc chưa bật Server.");
+    }
+}
+
+// Khởi chạy hàm khi load trang
+document.addEventListener("DOMContentLoaded", loadSavedRasters);
