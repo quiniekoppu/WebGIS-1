@@ -19,9 +19,6 @@ const geojsonInput = document.getElementById('geojson-upload');
 const uploadInfo = document.getElementById('upload-info');
 const rasterInput = document.getElementById('raster-upload');
 const rasterInfo = document.getElementById('raster-info');
-const rasterControls = document.getElementById('raster-controls');
-const rasterOpacity = document.getElementById('raster-opacity');
-const opacityVal = document.getElementById('opacity-val');
 
 // ===================================================================
 // 3. VECTOR - XỬ LÝ FILE GEOJSON/KML/SHAPEFILE VÀ BÓC TÁCH LƯU VÀO DB
@@ -40,7 +37,6 @@ geojsonInput.addEventListener('change', async function(e) {
 
     uploadInfo.innerHTML = `<div style="color:#d69e2e;font-size:0.8rem">⏳ Đang đọc và phiên dịch file <strong>${file.name}</strong>...</div>`;
 
-    // Lưu trữ nguyên file gốc lên Storage để backup
     if (typeof saveLayerToSupabase === 'function') {
         saveLayerToSupabase(file, 'vector');
     }
@@ -48,21 +44,16 @@ geojsonInput.addEventListener('change', async function(e) {
     try {
         let geojson = null;
 
-        // --- THUẬT TOÁN PHIÊN DỊCH ĐA ĐỊNH DẠNG ---
         if (ext === 'geojson' || ext === 'json') {
             const text = await file.text();
             geojson = JSON.parse(text);
-        } 
-        else if (ext === 'kml') {
+        } else if (ext === 'kml') {
             const text = await file.text();
             const dom = new DOMParser().parseFromString(text, 'text/xml');
-            geojson = toGeoJSON.kml(dom); // Dùng thư viện togeojson
-        } 
-        else if (ext === 'zip') {
+            geojson = toGeoJSON.kml(dom); 
+        } else if (ext === 'zip') {
             const buffer = await file.arrayBuffer();
-            geojson = await shp(buffer); // Dùng thư viện shpjs giải nén và đọc Shapefile
-            
-            // Xử lý trường hợp 1 file zip chứa nhiều layer shapefile bên trong
+            geojson = await shp(buffer); 
             if (Array.isArray(geojson)) {
                 let combinedFeatures = [];
                 geojson.forEach(g => combinedFeatures = combinedFeatures.concat(g.features || []));
@@ -71,42 +62,30 @@ geojsonInput.addEventListener('change', async function(e) {
         }
 
         if (!geojson || !geojson.features) throw new Error("Dữ liệu không hợp lệ hoặc rỗng.");
-
         if (uploadedVectorLayer) map.removeLayer(uploadedVectorLayer);
 
-        // --- THUẬT TOÁN BÓC TÁCH & LƯU VÀO DB (Đã làm ở bài trước) ---
         if (geojson.features.length > 0) {
             const confirmSave = confirm(`Tìm thấy ${geojson.features.length} đối tượng từ file ${ext.toUpperCase()}. Bạn có muốn bóc tách và lưu tất cả vào Database không?`);
-            
             if (confirmSave) {
                 uploadInfo.innerHTML = `<div style="color:#d69e2e;font-size:0.8rem">⏳ Đang lưu ${geojson.features.length} đối tượng vào Database...</div>`;
-                
                 const insertData = geojson.features.map((feat, index) => {
                     const props = feat.properties || {};
-                    // Cố gắng tìm tên thông minh từ các cột phổ biến
                     const featureName = props.Name || props.name || props.Ten || props.TEN || props.id || `Đối tượng từ ${file.name} (#${index+1})`;
-                    
                     return {
                         name: featureName,
                         feature_type: feat.geometry ? feat.geometry.type : 'Unknown',
                         geojson: feat
                     };
                 });
-
-                // Chèn hàng loạt vào DB
                 const { error } = await supabaseClient.from('web_map_features').insert(insertData);
                 if (error) throw error;
-                console.log(`✅ Đã bóc tách và lưu ${geojson.features.length} đối tượng vào DB.`);
             }
         }
 
-        // --- HIỂN THỊ LÊN BẢN ĐỒ LEAFLET ---
         let featureCount = 0;
         uploadedVectorLayer = L.geoJSON(geojson, {
             style: { color: '#7c3aed', fillColor: '#7c3aed', fillOpacity: 0.15, weight: 2 },
-            pointToLayer: (feature, latlng) => L.circleMarker(latlng, {
-                radius: 6, fillColor: '#7c3aed', color: 'white', weight: 2, opacity: 1, fillOpacity: 0.9
-            }),
+            pointToLayer: (feature, latlng) => L.circleMarker(latlng, { radius: 6, fillColor: '#7c3aed', color: 'white', weight: 2, opacity: 1, fillOpacity: 0.9 }),
             onEachFeature: function(feature, layer) {
                 featureCount++;
                 const props = feature.properties;
@@ -114,33 +93,28 @@ geojsonInput.addEventListener('change', async function(e) {
                     let rows = Object.entries(props)
                         .filter(([k, v]) => v !== null && v !== undefined && v !== '')
                         .map(([k, v]) => `<tr><td style="border-bottom:1px solid #e2e8f0; padding:4px;"><b>${k}</b></td><td style="border-bottom:1px solid #e2e8f0; padding:4px;">${v}</td></tr>`).join('');
-                    if (rows) {
-                        layer.bindPopup(`<strong style="color:#2d3748;">📋 Thuộc tính</strong><div style="max-height:200px; overflow-y:auto; margin-top:8px;"><table style="width:100%;font-size:0.8rem; border-collapse:collapse;">${rows}</table></div>`, { maxWidth: 300 });
-                    }
+                    if (rows) layer.bindPopup(`<strong style="color:#2d3748;">📋 Thuộc tính</strong><div style="max-height:200px; overflow-y:auto; margin-top:8px;"><table style="width:100%;font-size:0.8rem; border-collapse:collapse;">${rows}</table></div>`, { maxWidth: 300 });
                 }
             }
         }).addTo(map);
 
-        // Zoom map vừa vặn với toàn bộ dữ liệu
         const bounds = uploadedVectorLayer.getBounds();
         if (bounds.isValid()) map.fitBounds(bounds, { padding: [30, 30] });
 
         uploadInfo.innerHTML = `<div style="color:#38a169;font-size:0.85rem">✅ <strong>${file.name}</strong> (${featureCount} đối tượng) - Đã xử lý xong.</div>`;
 
     } catch (err) {
-        console.error(err);
         uploadInfo.innerHTML = `<span style="color:#e53e3e">⚠ Lỗi khi xử lý file: ${err.message}</span>`;
     }
-    this.value = ''; // Reset input
+    this.value = ''; 
 });
 
 // ======================================================
 // 4. RASTER - UPLOAD NHIỀU FILE, LƯU NODE.JS VÀ QUẢN LÝ
 // ======================================================
 
-// Biến toàn cục lưu trữ các lớp raster đang hiển thị
 let rasterIdCounter = 0;
-const rasterLayerMap = {}; // { id: L.imageOverlay }
+const rasterLayerMap = {}; 
 
 rasterInput.addEventListener('change', async function(e) {
     const files = e.target.files;
@@ -148,7 +122,6 @@ rasterInput.addEventListener('change', async function(e) {
 
     rasterInfo.innerHTML = `<div style="color:#d69e2e;font-size:0.8rem">⏳ Đang gửi ${files.length} file lên Node Server...</div>`;
 
-    // 1. Đẩy file lên Node.js Backend để lưu vào máy
     const formData = new FormData();
     for (let i = 0; i < files.length; i++) {
         formData.append('files', files[i]);
@@ -165,26 +138,23 @@ rasterInput.addEventListener('change', async function(e) {
 
         rasterInfo.innerHTML = `<div style="color:#38a169;font-size:0.8rem">✅ Đã lưu ${data.files.length} file vào máy. Đang xử lý hiển thị...</div>`;
 
-        // 2. Xử lý hiển thị từng file lên bản đồ Leaflet
         for (let i = 0; i < files.length; i++) {
             const file = files[i];
             const ext = file.name.split('.').pop().toLowerCase();
             const rId = ++rasterIdCounter;
             
-            // Tìm URL đã lưu trên server trả về
             const serverFileInfo = data.files.find(f => f.originalName === file.name);
             const savedUrl = serverFileInfo ? serverFileInfo.url : URL.createObjectURL(file);
 
             let overlayLayer = null;
+            let bounds = null;
 
             if (ext === 'tif' || ext === 'tiff') {
-                // Đọc TIFF bằng GeoTIFF.js
                 const arrayBuffer = await file.arrayBuffer();
                 const tiff = await GeoTIFF.fromArrayBuffer(arrayBuffer);
                 const image = await tiff.getImage(); 
                 const bbox = image.getBoundingBox();
                 
-                // Đơn giản hóa: Chuyển TIFF thành canvas URL để hiển thị nhanh
                 const width = image.getWidth();
                 const height = image.getHeight();
                 const rasters = await image.readRasters({ interleave: false });
@@ -195,7 +165,6 @@ rasterInput.addEventListener('change', async function(e) {
                 const imgData = ctx.createImageData(width, height);
                 const pixels = imgData.data;
 
-                // Xử lý màu (giả định RGB cho nhanh)
                 if (rasters.length >= 3) {
                     for (let j = 0; j < width * height; j++) {
                         pixels[j*4] = rasters[0][j];
@@ -206,17 +175,31 @@ rasterInput.addEventListener('change', async function(e) {
                 }
                 ctx.putImageData(imgData, 0, 0);
                 
-                const bounds = [[bbox[1], bbox[0]], [bbox[3], bbox[2]]];
+                bounds = [[bbox[1], bbox[0]], [bbox[3], bbox[2]]];
                 overlayLayer = L.imageOverlay(canvas.toDataURL(), bounds, { opacity: 0.9, interactive: true });
                 map.fitBounds(bounds);
 
             } else if (ext === 'jpg' || ext === 'jpeg' || ext === 'png') {
-                // Ảnh thường không có tọa độ, ép vào giữa màn hình
-                const bounds = map.getBounds();
+                bounds = map.getBounds();
                 overlayLayer = L.imageOverlay(savedUrl, bounds, { opacity: 0.9, interactive: true });
                 map.fitBounds(bounds);
+
+            } else if (ext === 'dat') {
+                alert(`Đã lưu file ${file.name} vào máy chủ, nhưng trình duyệt không thể vẽ định dạng .dat trực tiếp.`);
+                continue; 
+            }
+
+            // ĐOẠN ĐƯỢC CHỈNH SỬA: Đảm bảo lưu đúng cho cả TIF và JPG
+            if (overlayLayer) {
+                overlayLayer.addTo(map);
+                rasterLayerMap[rId] = overlayLayer;
+                
+                // Sinh giao diện HTML trước
+                addRasterToSidebar(rId, file.name);
+
+                // Sau đó mới lưu vào Cơ sở dữ liệu của Node.js
                 const rasterMetadata = {
-                    id: rId.toString() + Date.now(), // Tạo ID độc nhất
+                    id: rId.toString() + Date.now(), 
                     ui_id: rId,
                     name: file.name,
                     url: savedUrl,
@@ -224,43 +207,32 @@ rasterInput.addEventListener('change', async function(e) {
                     ext: ext
                 };
 
-                // Gắn db_id vào thẻ HTML để sau này biết đường mà xóa
-                document.getElementById(`raster-item-${rId}`).dataset.dbId = rasterMetadata.id;
+                // Lấy thẻ HTML vừa sinh ra để nhét ID vào
+                const itemEl = document.getElementById(`raster-item-${rId}`);
+                if (itemEl) {
+                    itemEl.dataset.dbId = rasterMetadata.id;
+                }
 
+                // Gửi về Server
                 fetch('http://localhost:3000/api/rasters', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(rasterMetadata)
-                });
-            
-            } else if (ext === 'dat') {
-                alert(`Đã lưu file ${file.name} vào máy chủ, nhưng trình duyệt không thể vẽ định dạng .dat trực tiếp.`);
-                continue; // Bỏ qua hiển thị
-            }
-
-            // Nếu tạo được layer, thêm vào map và sinh giao diện Sidebar
-            if (overlayLayer) {
-                overlayLayer.addTo(map);
-                rasterLayerMap[rId] = overlayLayer;
-                addRasterToSidebar(rId, file.name);
+                }).catch(err => console.error("Lỗi lưu siêu dữ liệu:", err));
             }
         }
 
-        setTimeout(() => rasterInfo.innerHTML = '', 3000);
+        setTimeout(() => rasterInfo.innerHTML = '', 4000);
 
     } catch (err) {
-        console.error(err);
-        rasterInfo.innerHTML = `<span style="color:#e53e3e">⚠ Lỗi: ${err.message}. Nhớ bật server.js nhé!</span>`;
+        rasterInfo.innerHTML = `<span style="color:#e53e3e">⚠ Lỗi: ${err.message}</span>`;
     }
-    
-    this.value = ''; // Reset
-    
+    this.value = ''; 
 });
 
 // ===================================================================
 // GIAO DIỆN QUẢN LÝ RASTER (Kéo thả, Ẩn hiện, Đổi tên)
 // ===================================================================
-
 function addRasterToSidebar(id, fileName) {
     const container = document.getElementById('rasters-list');
     const emptyMsg = container.querySelector('.empty-msg');
@@ -284,7 +256,6 @@ function addRasterToSidebar(id, fileName) {
             <span id="raster-name-${id}" style="font-weight: 500; font-size:0.85rem;">${fileName}</span>
           </div>
       </div>
-  
       <div class="feat-actions" style="display: flex; gap: 8px; align-items: center; padding-left: 8px;">
         <input type="range" min="0" max="1" step="0.1" value="0.9" title="Độ trong suốt" style="width: 40px; cursor: pointer;" oninput="changeRasterOpacity(${id}, this.value)">
         <button onclick="renameRasterLayer(${id})" title="Đổi tên" style="background:none; border:none; cursor:pointer; color:#3182ce;"><i class="fa-solid fa-pen"></i></button>
@@ -293,13 +264,11 @@ function addRasterToSidebar(id, fileName) {
       </div>
     `;
 
-    // Zoom tới ảnh khi click tên
     item.querySelector('.feat-info').addEventListener('click', () => {
         const layer = rasterLayerMap[id];
         if (layer && map.hasLayer(layer)) map.fitBounds(layer.getBounds());
     });
 
-    // Sự kiện kéo thả Z-Index
     item.addEventListener('dragstart', () => item.classList.add('dragging-raster'));
     item.addEventListener('dragend', () => {
         item.classList.remove('dragging-raster');
@@ -341,18 +310,18 @@ function renameRasterLayer(id) {
 async function deleteRasterLayer(id) {
     if (!confirm('Xóa ảnh này khỏi bản đồ?')) return;
     if (rasterLayerMap[id]) {
-        // Lấy DB ID đã cất giấu trong thẻ HTML
         const item = document.getElementById(`raster-item-${id}`);
-        const dbId = item.dataset.dbId;
+        let dbId = null;
+        if (item) dbId = item.dataset.dbId;
 
-        // Xóa trên giao diện
         map.removeLayer(rasterLayerMap[id]);
         delete rasterLayerMap[id];
         if (item) item.remove();
         
-        // --- ĐOẠN MỚI: Gọi API xóa khỏi Node.js ---
         if (dbId) {
-            await fetch(`http://localhost:3000/api/rasters/${dbId}`, { method: 'DELETE' });
+            try {
+                await fetch(`http://localhost:3000/api/rasters/${dbId}`, { method: 'DELETE' });
+            } catch (err) { console.error("Lỗi xóa DB:", err); }
         }
 
         if (document.getElementById('rasters-list').children.length === 0) {
@@ -361,7 +330,6 @@ async function deleteRasterLayer(id) {
     }
 }
 
-// Logic Kéo Thả (Z-Index)
 const rasterContainer = document.getElementById('rasters-list');
 if (rasterContainer) {
     rasterContainer.addEventListener('dragover', e => {
@@ -391,13 +359,12 @@ function updateRasterZIndexOrder() {
     reversedItems.forEach((item, index) => {
         const id = parseInt(item.id.replace('raster-item-', ''));
         const layer = rasterLayerMap[id];
-        // Đặt Z-Index cao hơn BaseMap (mặc định 1) nhưng thấp hơn Vector (mặc định 400)
         if (layer && layer.setZIndex) layer.setZIndex(100 + index); 
     });
 }
 
 // ======================================================
-// 5. CLOUD UPLOAD - LƯU ĐỊA ĐIỂM & ẢNH/VIDEO (CLOUDINARY + SUPABASE)
+// 5. CLOUD UPLOAD - LƯU ĐỊA ĐIỂM & ẢNH/VIDEO
 // ======================================================
 async function handleUpload() {
     const name = document.getElementById('point-name').value;
@@ -411,24 +378,16 @@ async function handleUpload() {
     btn.disabled = true;
 
     try {
-        // A. Tải file lên Cloudinary
         const formData = new FormData();
         formData.append('file', file);
         formData.append('upload_preset', CLOUDINARY_PRESET);
 
-        // THAY ĐỔI: Sử dụng 'auto/upload' thay vì 'image/upload' để tự động hỗ trợ Video và Ảnh
         const cloudRes = await fetch(`https://api.cloudinary.com/v1_1/${CLOUDINARY_NAME}/auto/upload`, {
             method: 'POST', body: formData
         });
-        
         const cloudData = await cloudRes.json();
+        if (!cloudRes.ok) throw new Error(cloudData.error?.message || "Lỗi Cloudinary");
 
-        // Bổ sung: Báo lỗi nếu Cloudinary từ chối upload (sai preset, file quá nặng,...)
-        if (!cloudRes.ok) {
-            throw new Error(cloudData.error?.message || "Lỗi khi upload lên Cloudinary");
-        }
-
-        // B. Lưu thông tin vào bảng 'web_map_points' trong Supabase
         const center = map.getCenter();
         const dbRes = await fetch(`${SUPABASE_URL}/rest/v1/web_map_points`, {
             method: 'POST',
@@ -439,7 +398,7 @@ async function handleUpload() {
             },
             body: JSON.stringify({
                 name: name,
-                image_url: cloudData.secure_url, // Vẫn lưu vào cột image_url, nhưng lúc này link có thể là ảnh hoặc video
+                image_url: cloudData.secure_url, 
                 geom: `POINT(${center.lng} ${center.lat})`
             })
         });
@@ -447,68 +406,38 @@ async function handleUpload() {
         if (dbRes.ok) {
             alert("Lưu thành công!");
             location.reload();
-        } else {
-            throw new Error("Không thể lưu vào database Supabase");
-        }
+        } else throw new Error("Không thể lưu vào database Supabase");
     } catch (err) {
         alert("Lỗi: " + err.message);
-        console.error(err);
     } finally {
         btn.innerText = "Lưu địa điểm & File";
         btn.disabled = false;
     }
 }
 
-// ======================================================
-// HÀM BỔ TRỢ (HELPER FUNCTIONS)
-// ======================================================
-
-// Hàm tạo màu sắc cho Single Band Raster
-function viridisColor(t) {
-    const lut = [[68,1,84],[72,40,120],[62,74,137],[49,104,142],[38,130,142],[31,158,137],[53,183,121],[110,206,88],[181,222,43],[253,231,37]];
-    const idx = t * (lut.length - 1);
-    const lo = Math.floor(idx);
-    const hi = Math.min(lo + 1, lut.length - 1);
-    const f = idx - lo;
-    return [
-        Math.round(lut[lo][0] + f * (lut[hi][0] - lut[lo][0])),
-        Math.round(lut[lo][1] + f * (lut[hi][1] - lut[lo][1])),
-        Math.round(lut[lo][2] + f * (lut[hi][2] - lut[lo][2]))
-    ];
-}
-
-// Hàm lưu file gốc vào Supabase Storage và link vào bảng map_layers
 async function saveLayerToSupabase(file, type, metadata = {}) {
     try {
         const fileName = `${type}_${Date.now()}_${file.name}`;
         const filePath = `uploads/${fileName}`;
 
-        // Đẩy file lên Storage bucket 'gis_files'
         const { data: uploadData, error: uploadError } = await supabaseClient.storage
             .from('gis_files')
             .upload(filePath, file);
 
         if (uploadError) throw uploadError;
         
-        // Lấy link URL công khai
-        const { data: urlData } = supabaseClient.storage
-            .from('gis_files')
-            .getPublicUrl(filePath);
+        const { data: urlData } = supabaseClient.storage.from('gis_files').getPublicUrl(filePath);
 
-        // Chèn metadata vào bảng map_layers
-        const { error: dbError } = await supabaseClient
-            .from('map_layers')
-            .insert([{
-                layer_name: file.name,
-                layer_type: type,
-                file_url: urlData.publicUrl,
-                metadata: metadata
-            }]);
+        const { error: dbError } = await supabaseClient.from('map_layers').insert([{
+            layer_name: file.name,
+            layer_type: type,
+            file_url: urlData.publicUrl,
+            metadata: metadata
+        }]);
 
         if (dbError) throw dbError;
-        console.log(`✅ Đã lưu bền vững lớp ${type}: ${file.name}`);
     } catch (err) {
-        console.error("❌ Lỗi lưu trữ Supabase:", err.message);
+        console.error("Lỗi lưu trữ Supabase:", err.message);
     }
 }
 
@@ -518,13 +447,13 @@ async function saveLayerToSupabase(file, type, metadata = {}) {
 async function loadSavedRasters() {
     try {
         const res = await fetch('http://localhost:3000/api/rasters');
+        if (!res.ok) return;
         const savedRasters = await res.json();
 
         for (let r of savedRasters) {
             const rId = ++rasterIdCounter;
             let overlayLayer = null;
 
-            // Nếu là TIF, phải dùng thư viện GeoTIFF dịch lại thành Canvas
             if (r.ext === 'tif' || r.ext === 'tiff') {
                 const tifRes = await fetch(r.url);
                 const arrayBuffer = await tifRes.arrayBuffer();
@@ -547,25 +476,23 @@ async function loadSavedRasters() {
                 }
                 ctx.putImageData(imgData, 0, 0);
                 overlayLayer = L.imageOverlay(canvas.toDataURL(), r.bounds, { opacity: 0.9, interactive: true });
-            
-            // Nếu là JPG/PNG, đưa thẳng link ảnh vào bản đồ
             } else if (r.ext === 'jpg' || r.ext === 'jpeg' || r.ext === 'png') {
                 overlayLayer = L.imageOverlay(r.url, r.bounds, { opacity: 0.9, interactive: true });
             }
 
-            // Đưa lên bản đồ và Sidebar
             if (overlayLayer) {
                 overlayLayer.addTo(map);
                 rasterLayerMap[rId] = overlayLayer;
                 addRasterToSidebar(rId, r.name);
-                // Gắn lại dbId cho thẻ HTML để có thể xóa
-                document.getElementById(`raster-item-${rId}`).dataset.dbId = r.id;
+                
+                // Nạp lại DB ID để chức năng xóa hoạt động bình thường
+                const itemEl = document.getElementById(`raster-item-${rId}`);
+                if (itemEl) itemEl.dataset.dbId = r.id;
             }
         }
     } catch (err) {
-        console.log("Không có dữ liệu Raster lưu trước đó hoặc chưa bật Server.");
+        console.log("Không có dữ liệu Raster hoặc chưa bật Server Node.js.");
     }
 }
 
-// Khởi chạy hàm khi load trang
 document.addEventListener("DOMContentLoaded", loadSavedRasters);
