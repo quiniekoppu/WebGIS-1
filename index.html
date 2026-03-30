@@ -106,10 +106,20 @@
 
       <div class="upload-tab-content hidden" id="tab-raster">
         <label class="upload-btn raster-btn">
-          <i class="fa-solid fa-layer-group"></i> Chọn file GeoTIFF (.tif)
-          <input type="file" id="raster-upload" accept=".tif,.tiff" hidden />
+          <i class="fa-solid fa-layer-group"></i> Chọn file Raster (.tif, .jpg, .dat)
+          <input type="file" id="raster-upload" accept=".tif,.tiff,.jpg,.jpeg,.png,.dat" multiple hidden />
         </label>
         <div id="raster-info"></div>
+      </div>
+    </div> <div class="sidebar-section">
+      <div class="section-title"><i class="fa-solid fa-images"></i> Quản lý lớp ảnh (Raster)</div>
+      <div id="rasters-list"><p class="empty-msg">Chưa có ảnh nào</p></div>
+    </div>
+
+    <div class="sidebar-section">
+      <div class="section-title"><i class="fa-solid fa-list"></i> Đối tượng đã vẽ</div>
+      <div id="features-list"><p class="empty-msg">Chưa có đối tượng nào</p></div>
+    </div>
 
         <div id="raster-controls" class="hidden">
           <div class="opacity-row">

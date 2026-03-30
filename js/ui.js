@@ -103,4 +103,4 @@ document.addEventListener('keydown', function(e) {
 });
 
 // -------- TOOLTIP KEYBOARD SHORTCUTS --------
-showNotification('🗺 WebGIS sẵn sàng! Phím tắt: M=Điểm L=Đường P=Vùng D=Đo', 4000);
+showNotification('WebGIS sẵn sàng! Phím tắt: M=Điểm L=Đường P=Vùng D=Đo', 4000);

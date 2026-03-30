@@ -1,16 +1,36 @@
-// server.js
 const express = require('express');
+const cors = require('cors');
+const multer = require('multer');
+const path = require('path');
+const fs = require('fs');
 const db = require('./db');
-const app = express();
 
+const app = express();
+app.use(cors());
+app.use(express.json());
+
+// Tạo thư mục 'uploads' nếu chưa có
+const uploadDir = path.join(__dirname, 'uploads');
+if (!fs.existsSync(uploadDir)) {
+    fs.mkdirSync(uploadDir);
+}
+
+// Cấu hình Multer để lưu file vào máy
+const storage = multer.diskStorage({
+    destination: function (req, file, cb) {
+        cb(null, uploadDir);
+    },
+    filename: function (req, file, cb) {
+        // Lưu file với thời gian + tên gốc để tránh trùng lặp
+        cb(null, Date.now() + '-' + file.originalname.replace(/[^a-zA-Z0-9.-]/g, '_'));
+    }
+});
+const upload = multer({ storage: storage });
+
+// API 1: Lấy danh sách locations (Code cũ của bạn)
 app.get('/api/locations', async (req, res) => {
   try {
-    // Truy vấn chuyển đổi hình học sang GeoJSON
-    const result = await db.query(
-      'SELECT id, name, ST_AsGeoJSON(geom) as geometry FROM locations'
-    );
-    
-    // Trả về định dạng GeoJSON chuẩn
+    const result = await db.query('SELECT id, name, ST_AsGeoJSON(geom) as geometry FROM locations');
     const geojson = {
       type: "FeatureCollection",
       features: result.rows.map(row => ({
@@ -19,12 +39,36 @@ app.get('/api/locations', async (req, res) => {
         geometry: JSON.parse(row.geometry)
       }))
     };
-    
     res.json(geojson);
   } catch (err) {
     console.error(err);
     res.status(500).send("Server Error");
   }
 });
+
+// API 2: Upload nhiều file Raster
+app.post('/api/upload-raster', upload.array('files', 10), (req, res) => {
+    try {
+        if (!req.files || req.files.length === 0) {
+            return res.status(400).json({ error: "Không có file nào được tải lên" });
+        }
+        
+        // Trả về danh sách thông tin file đã lưu
+        const savedFiles = req.files.map(file => ({
+            originalName: file.originalname,
+            savedName: file.filename,
+            url: `http://localhost:3000/uploads/${file.filename}`,
+            size: file.size
+        }));
+
+        res.json({ success: true, files: savedFiles });
+    } catch (error) {
+        console.error("Upload error:", error);
+        res.status(500).json({ error: "Lỗi lưu file trên server" });
+    }
+});
+
+// Phục vụ thư mục 'uploads' thành file tĩnh để frontend có thể đọc ảnh bằng URL
+app.use('/uploads', express.static(uploadDir));
 
 app.listen(3000, () => console.log('Server running on port 3000'));

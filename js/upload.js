@@ -135,123 +135,239 @@ geojsonInput.addEventListener('change', async function(e) {
 });
 
 // ======================================================
-// 4. RASTER - XỬ LÝ GEOTIFF
+// 4. RASTER - UPLOAD NHIỀU FILE, LƯU NODE.JS VÀ QUẢN LÝ
 // ======================================================
-rasterInput.addEventListener('change', async function(e) {
-    const file = e.target.files[0];
-    if (!file) return;
 
-    if (!file.name.match(/\.tiff?$/i)) {
-        rasterInfo.innerHTML = '<span style="color:#e53e3e">⚠ Chỉ hỗ trợ file .tif hoặc .tiff</span>';
-        return;
+// Biến toàn cục lưu trữ các lớp raster đang hiển thị
+let rasterIdCounter = 0;
+const rasterLayerMap = {}; // { id: L.imageOverlay }
+
+rasterInput.addEventListener('change', async function(e) {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+
+    rasterInfo.innerHTML = `<div style="color:#d69e2e;font-size:0.8rem">⏳ Đang gửi ${files.length} file lên Node Server...</div>`;
+
+    // 1. Đẩy file lên Node.js Backend để lưu vào máy
+    const formData = new FormData();
+    for (let i = 0; i < files.length; i++) {
+        formData.append('files', files[i]);
     }
 
-    rasterInfo.innerHTML = `<div style="color:#718096;font-size:0.78rem">⏳ Đang xử lý <strong>${file.name}</strong>...</div>`;
-
     try {
-        const arrayBuffer = await file.arrayBuffer();
-        const tiff = await GeoTIFF.fromArrayBuffer(arrayBuffer);
-        const image = await tiff.getImage(); 
-        
-        // Lấy tọa độ bao (Bounding Box)
-        const bbox = image.getBoundingBox();
-        
-        // Gọi hàm lưu trữ bền vững vào Supabase (kèm bbox metadata)
-        saveLayerToSupabase(file, 'raster', { bbox: bbox });
+        const response = await fetch('http://localhost:3000/api/upload-raster', {
+            method: 'POST',
+            body: formData
+        });
 
-        const width = image.getWidth();
-        const height = image.getHeight();
-        const nBands = image.getSamplesPerPixel();
-        const geoKeys = image.getGeoKeys();
-        const rasters = await image.readRasters({ interleave: false });
+        if (!response.ok) throw new Error("Lỗi khi upload lên Server Node.js");
+        const data = await response.json();
 
-        let [minX, minY, maxX, maxY] = bbox;
-        const epsgCode = geoKeys.ProjectedCSTypeGeoKey || geoKeys.GeographicTypeGeoKey || 4326;
+        rasterInfo.innerHTML = `<div style="color:#38a169;font-size:0.8rem">✅ Đã lưu ${data.files.length} file vào máy. Đang xử lý hiển thị...</div>`;
 
-        // Chuyển đổi hệ tọa độ nếu không phải WGS84 (EPSG:4326)
-        if (epsgCode !== 4326 && typeof proj4 !== 'undefined') {
-            try {
-                const sw = proj4(`EPSG:${epsgCode}`, 'EPSG:4326', [minX, minY]);
-                const ne = proj4(`EPSG:${epsgCode}`, 'EPSG:4326', [maxX, maxY]);
-                minX = sw[0]; minY = sw[1]; maxX = ne[0]; maxY = ne[1];
-            } catch(err) { console.warn('Reproject failed, using raw bbox:', err); }
-        }
-
-        const bounds = [[minY, minX], [maxY, maxX]];
-
-        if (currentRasterLayer) map.removeLayer(currentRasterLayer);
-
-        const canvas = document.createElement('canvas');
-        canvas.width = width; 
-        canvas.height = height;
-        const ctx = canvas.getContext('2d');
-        const imgData = ctx.createImageData(width, height);
-        const pixels = imgData.data;
-        const noDataVal = image.getGDALNoData();
-
-        // Xử lý hiển thị Raster (RGB hoặc Single Band)
-        if (nBands >= 3) {
-            const [r, g, b, a] = rasters;
-            for (let i = 0; i < width * height; i++) {
-                const idx = i * 4;
-                pixels[idx] = r[i]; 
-                pixels[idx+1] = g[i]; 
-                pixels[idx+2] = b[i];
-                pixels[idx+3] = a ? a[i] : (noDataVal !== null && r[i] === noDataVal ? 0 : 255);
-            }
-        } else {
-            const band = rasters[0];
-            let filteredValues = Array.from(band).filter(v => v !== noDataVal && !isNaN(v));
-            let min = Math.min(...filteredValues);
-            let max = Math.max(...filteredValues);
-            const range = max - min || 1;
+        // 2. Xử lý hiển thị từng file lên bản đồ Leaflet
+        for (let i = 0; i < files.length; i++) {
+            const file = files[i];
+            const ext = file.name.split('.').pop().toLowerCase();
+            const rId = ++rasterIdCounter;
             
-            for (let i = 0; i < width * height; i++) {
-                const idx = i * 4;
-                if (band[i] === noDataVal || isNaN(band[i])) { 
-                    pixels[idx+3] = 0; 
-                    continue; 
+            // Tìm URL đã lưu trên server trả về
+            const serverFileInfo = data.files.find(f => f.originalName === file.name);
+            const savedUrl = serverFileInfo ? serverFileInfo.url : URL.createObjectURL(file);
+
+            let overlayLayer = null;
+
+            if (ext === 'tif' || ext === 'tiff') {
+                // Đọc TIFF bằng GeoTIFF.js
+                const arrayBuffer = await file.arrayBuffer();
+                const tiff = await GeoTIFF.fromArrayBuffer(arrayBuffer);
+                const image = await tiff.getImage(); 
+                const bbox = image.getBoundingBox();
+                
+                // Đơn giản hóa: Chuyển TIFF thành canvas URL để hiển thị nhanh
+                const width = image.getWidth();
+                const height = image.getHeight();
+                const rasters = await image.readRasters({ interleave: false });
+                
+                const canvas = document.createElement('canvas');
+                canvas.width = width; canvas.height = height;
+                const ctx = canvas.getContext('2d');
+                const imgData = ctx.createImageData(width, height);
+                const pixels = imgData.data;
+
+                // Xử lý màu (giả định RGB cho nhanh)
+                if (rasters.length >= 3) {
+                    for (let j = 0; j < width * height; j++) {
+                        pixels[j*4] = rasters[0][j];
+                        pixels[j*4+1] = rasters[1][j];
+                        pixels[j*4+2] = rasters[2][j];
+                        pixels[j*4+3] = 255;
+                    }
                 }
-                const t = (band[i] - min) / range;
-                const col = viridisColor(t);
-                pixels[idx] = col[0]; 
-                pixels[idx+1] = col[1]; 
-                pixels[idx+2] = col[2]; 
-                pixels[idx+3] = 220; // Độ đục mặc định cho single band
+                ctx.putImageData(imgData, 0, 0);
+                
+                const bounds = [[bbox[1], bbox[0]], [bbox[3], bbox[2]]];
+                overlayLayer = L.imageOverlay(canvas.toDataURL(), bounds, { opacity: 0.9, interactive: true });
+                map.fitBounds(bounds);
+
+            } else if (ext === 'jpg' || ext === 'jpeg' || ext === 'png') {
+                // Ảnh thường không có tọa độ, ép vào giữa màn hình
+                const bounds = map.getBounds();
+                overlayLayer = L.imageOverlay(savedUrl, bounds, { opacity: 0.9, interactive: true });
+                map.fitBounds(bounds);
+
+            } else if (ext === 'dat') {
+                alert(`Đã lưu file ${file.name} vào máy chủ, nhưng trình duyệt không thể vẽ định dạng .dat trực tiếp.`);
+                continue; // Bỏ qua hiển thị
+            }
+
+            // Nếu tạo được layer, thêm vào map và sinh giao diện Sidebar
+            if (overlayLayer) {
+                overlayLayer.addTo(map);
+                rasterLayerMap[rId] = overlayLayer;
+                addRasterToSidebar(rId, file.name);
             }
         }
 
-        ctx.putImageData(imgData, 0, 0);
-        currentRasterLayer = L.imageOverlay(canvas.toDataURL(), bounds, {
-            opacity: parseFloat(rasterOpacity.value), 
-            interactive: false
-        }).addTo(map);
-
-        map.fitBounds(bounds);
-        rasterInfo.innerHTML = `<div style="color:#38a169">✅ <strong>${file.name}</strong></div>`;
-        rasterControls.classList.remove('hidden');
+        setTimeout(() => rasterInfo.innerHTML = '', 3000);
 
     } catch (err) {
         console.error(err);
-        rasterInfo.innerHTML = `<span style="color:#e53e3e">⚠ Lỗi: ${err.message}</span>`;
+        rasterInfo.innerHTML = `<span style="color:#e53e3e">⚠ Lỗi: ${err.message}. Nhớ bật server.js nhé!</span>`;
     }
-    this.value = '';
+    
+    this.value = ''; // Reset
 });
 
-// Điều khiển Opacity
-rasterOpacity.addEventListener('input', function() {
-    const val = parseFloat(this.value);
-    opacityVal.textContent = Math.round(val * 100) + '%';
-    if (currentRasterLayer) currentRasterLayer.setOpacity(val);
-});
+// ===================================================================
+// GIAO DIỆN QUẢN LÝ RASTER (Kéo thả, Ẩn hiện, Đổi tên)
+// ===================================================================
 
-// Xóa Raster
-document.getElementById('raster-remove-btn').addEventListener('click', function() {
-    if (currentRasterLayer) map.removeLayer(currentRasterLayer);
-    currentRasterLayer = null;
-    rasterInfo.innerHTML = '';
-    rasterControls.classList.add('hidden');
-});
+function addRasterToSidebar(id, fileName) {
+    const container = document.getElementById('rasters-list');
+    const emptyMsg = container.querySelector('.empty-msg');
+    if (emptyMsg) emptyMsg.remove();
+
+    const item = document.createElement('div');
+    item.className = 'feature-item raster-item';
+    item.id = `raster-item-${id}`;
+    item.draggable = true; 
+    item.style.display = 'flex';
+    item.style.justifyContent = 'space-between';
+    item.style.alignItems = 'center';
+
+    item.innerHTML = `
+      <div style="display:flex; align-items:center; flex:1; overflow:hidden;">
+          <div class="raster-drag-handle" style="color: #cbd5e0; padding-right: 12px; cursor: grab;">
+            <i class="fa-solid fa-grip-vertical"></i>
+          </div>
+          <div class="feat-info" style="cursor:pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+            <i class="fa-solid fa-image" style="color:#38a169;"></i>
+            <span id="raster-name-${id}" style="font-weight: 500; font-size:0.85rem;">${fileName}</span>
+          </div>
+      </div>
+  
+      <div class="feat-actions" style="display: flex; gap: 8px; align-items: center; padding-left: 8px;">
+        <input type="range" min="0" max="1" step="0.1" value="0.9" title="Độ trong suốt" style="width: 40px; cursor: pointer;" oninput="changeRasterOpacity(${id}, this.value)">
+        <button onclick="renameRasterLayer(${id})" title="Đổi tên" style="background:none; border:none; cursor:pointer; color:#3182ce;"><i class="fa-solid fa-pen"></i></button>
+        <button id="toggle-raster-${id}" onclick="toggleRasterLayer(${id})" title="Ẩn/Hiện" style="background:none; border:none; cursor:pointer; color:#4a5568;"><i class="fa-solid fa-eye"></i></button>
+        <button onclick="deleteRasterLayer(${id})" title="Xóa" style="background:none; border:none; cursor:pointer; color:#e53e3e;"><i class="fa-solid fa-times"></i></button>
+      </div>
+    `;
+
+    // Zoom tới ảnh khi click tên
+    item.querySelector('.feat-info').addEventListener('click', () => {
+        const layer = rasterLayerMap[id];
+        if (layer && map.hasLayer(layer)) map.fitBounds(layer.getBounds());
+    });
+
+    // Sự kiện kéo thả Z-Index
+    item.addEventListener('dragstart', () => item.classList.add('dragging-raster'));
+    item.addEventListener('dragend', () => {
+        item.classList.remove('dragging-raster');
+        updateRasterZIndexOrder();
+    });
+
+    container.insertBefore(item, container.firstChild);
+    updateRasterZIndexOrder();
+}
+
+function changeRasterOpacity(id, value) {
+    if (rasterLayerMap[id]) rasterLayerMap[id].setOpacity(value);
+}
+
+function toggleRasterLayer(id) {
+    const layer = rasterLayerMap[id];
+    if (!layer) return;
+    const btn = document.getElementById(`toggle-raster-${id}`);
+    const icon = btn.querySelector('i');
+    
+    if (map.hasLayer(layer)) {
+        map.removeLayer(layer);
+        icon.classList.replace('fa-eye', 'fa-eye-slash');
+        btn.style.color = '#a0aec0';
+    } else {
+        map.addLayer(layer);
+        icon.classList.replace('fa-eye-slash', 'fa-eye');
+        btn.style.color = '#4a5568';
+        updateRasterZIndexOrder();
+    }
+}
+
+function renameRasterLayer(id) {
+    const nameSpan = document.getElementById(`raster-name-${id}`);
+    const newName = prompt("Đổi tên hiển thị lớp ảnh:", nameSpan.innerText);
+    if (newName && newName.trim()) nameSpan.innerText = newName.trim();
+}
+
+function deleteRasterLayer(id) {
+    if (!confirm('Xóa ảnh này khỏi bản đồ? (Ảnh gốc vẫn lưu trong thư mục uploads của Node.js)')) return;
+    if (rasterLayerMap[id]) {
+        map.removeLayer(rasterLayerMap[id]);
+        delete rasterLayerMap[id];
+        const item = document.getElementById(`raster-item-${id}`);
+        if (item) item.remove();
+        
+        if (document.getElementById('rasters-list').children.length === 0) {
+            document.getElementById('rasters-list').innerHTML = '<p class="empty-msg">Chưa có ảnh nào</p>';
+        }
+    }
+}
+
+// Logic Kéo Thả (Z-Index)
+const rasterContainer = document.getElementById('rasters-list');
+if (rasterContainer) {
+    rasterContainer.addEventListener('dragover', e => {
+        e.preventDefault();
+        const afterElement = getRasterDragAfterElement(rasterContainer, e.clientY);
+        const draggable = document.querySelector('.dragging-raster');
+        if (draggable) {
+            if (afterElement == null) rasterContainer.appendChild(draggable);
+            else rasterContainer.insertBefore(draggable, afterElement);
+        }
+    });
+}
+
+function getRasterDragAfterElement(container, y) {
+    const elements = [...container.querySelectorAll('.raster-item:not(.dragging-raster)')];
+    return elements.reduce((closest, child) => {
+        const box = child.getBoundingClientRect();
+        const offset = y - box.top - box.height / 2;
+        if (offset < 0 && offset > closest.offset) return { offset: offset, element: child };
+        else return closest;
+    }, { offset: Number.NEGATIVE_INFINITY }).element;
+}
+
+function updateRasterZIndexOrder() {
+    const items = document.querySelectorAll('.raster-item');
+    const reversedItems = Array.from(items).reverse(); 
+    reversedItems.forEach((item, index) => {
+        const id = parseInt(item.id.replace('raster-item-', ''));
+        const layer = rasterLayerMap[id];
+        // Đặt Z-Index cao hơn BaseMap (mặc định 1) nhưng thấp hơn Vector (mặc định 400)
+        if (layer && layer.setZIndex) layer.setZIndex(100 + index); 
+    });
+}
 
 // ======================================================
 // 5. CLOUD UPLOAD - LƯU ĐỊA ĐIỂM & ẢNH/VIDEO (CLOUDINARY + SUPABASE)
