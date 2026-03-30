@@ -435,7 +435,10 @@ async function loadSavedRasters() {
             const rId = ++rasterIdCounter;
             let overlayLayer = null;
 
-            if (r.extension === 'tif' || r.extension === 'tiff') {
+            // FIX: Chuyển đuôi file về chữ thường để so sánh (Tránh lỗi TIF viết hoa)
+            const ext = (r.extension || '').toLowerCase();
+
+            if (ext === 'tif' || ext === 'tiff') {
                 // TIF cần fetch lại dữ liệu nhị phân để render canvas
                 const res = await fetch(r.file_url);
                 const arrayBuffer = await res.arrayBuffer();
@@ -460,10 +463,13 @@ async function loadSavedRasters() {
                 overlayLayer.addTo(map);
                 rasterLayerMap[rId] = overlayLayer;
                 addRasterToSidebar(rId, r.name);
-                document.getElementById(`raster-item-${rId}`).dataset.dbId = r.id;
+                
+                const itemEl = document.getElementById(`raster-item-${rId}`);
+                if (itemEl) itemEl.dataset.dbId = r.id;
             }
         }
     } catch (err) {
-        console.warn("Chưa có dữ liệu Raster trên Cloud.");
+        // Mở log để kiểm tra nếu có lỗi mạng
+        console.error("❌ Lỗi khi khôi phục Raster lúc F5:", err);
     }
 }
