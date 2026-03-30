@@ -435,12 +435,16 @@ async function loadSavedRasters() {
             const rId = ++rasterIdCounter;
             let overlayLayer = null;
 
-            // FIX: Chuyển đuôi file về chữ thường để so sánh (Tránh lỗi TIF viết hoa)
+            // Ép đuôi file về chữ thường để không bị lỗi TIF viết hoa trong DB
             const ext = (r.extension || '').toLowerCase();
 
             if (ext === 'tif' || ext === 'tiff') {
                 // TIF cần fetch lại dữ liệu nhị phân để render canvas
                 const res = await fetch(r.file_url);
+                
+                // Nếu bị Supabase chặn, nó sẽ báo lỗi ở đây
+                if (!res.ok) throw new Error("Bị Supabase chặn quyền tải file TIF ngầm (Lỗi CORS) hoặc file đã bị xóa.");
+                
                 const arrayBuffer = await res.arrayBuffer();
                 const tiff = await GeoTIFF.fromArrayBuffer(arrayBuffer);
                 const image = await tiff.getImage();
@@ -456,6 +460,7 @@ async function loadSavedRasters() {
                 ctx.putImageData(imgData, 0, 0);
                 overlayLayer = L.imageOverlay(canvas.toDataURL(), r.bounds, { opacity: 0.9, interactive: true });
             } else {
+                // Ảnh JPG/PNG thì ốp link thẳng vào luôn
                 overlayLayer = L.imageOverlay(r.file_url, r.bounds, { opacity: 0.9, interactive: true });
             }
 
@@ -464,12 +469,18 @@ async function loadSavedRasters() {
                 rasterLayerMap[rId] = overlayLayer;
                 addRasterToSidebar(rId, r.name);
                 
+                // Nạp lại DB ID để chức năng xóa hoạt động bình thường
                 const itemEl = document.getElementById(`raster-item-${rId}`);
                 if (itemEl) itemEl.dataset.dbId = r.id;
             }
         }
     } catch (err) {
-        // Mở log để kiểm tra nếu có lỗi mạng
         console.error("❌ Lỗi khi khôi phục Raster lúc F5:", err);
+        // HIỆN THÔNG BÁO LỖI LÊN MÀN HÌNH ĐỂ DỄ BẮT BỆNH
+        alert("Có lỗi khi khôi phục ảnh TIF: " + err.message);
     }
 }
+
+setTimeout(() => {
+    loadSavedRasters();
+}, 500);
