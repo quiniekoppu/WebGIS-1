@@ -193,7 +193,10 @@ rasterInput.addEventListener('change', async function(e) {
                 const itemEl = document.getElementById(`raster-item-${rId}`);
                 if (itemEl) itemEl.dataset.dbId = dbData[0].id;
             }
-
+            if (!rasterInfo.innerHTML.includes('❌ Lỗi')) {
+            rasterInfo.innerHTML = `<div style="color:green">✅ Hoàn thành!</div>`;
+            setTimeout(() => rasterInfo.innerHTML = '', 4000);
+        }
         } catch (err) {
             console.error("Lỗi Cloud Raster:", err);
             rasterInfo.innerHTML += `<div style="color:red">❌ Lỗi file ${file.name}: ${err.message}</div>`;
