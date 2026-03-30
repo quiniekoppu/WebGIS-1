@@ -121,6 +121,7 @@ rasterInput.addEventListener('change', async function(e) {
     if (!files || files.length === 0) return;
 
     rasterInfo.innerHTML = `<div style="color:#d69e2e;font-size:0.8rem">⏳ Đang tải ${files.length} file lên Supabase Cloud...</div>`;
+    let hasError = false;
 
     for (let i = 0; i < files.length; i++) {
         const file = files[i];
@@ -141,7 +142,7 @@ rasterInput.addEventListener('change', async function(e) {
             const { data: urlData } = supabaseClient.storage.from('raster_files').getPublicUrl(`uploads/${fileName}`);
             const publicUrl = urlData.publicUrl;
 
-            // 3. Xử lý hiển thị trên bản đồ (Giống logic cũ)
+            // 3. Xử lý hiển thị trên bản đồ
             let overlayLayer = null;
             let bounds = null;
 
@@ -174,10 +175,12 @@ rasterInput.addEventListener('change', async function(e) {
             if (overlayLayer) {
                 overlayLayer.addTo(map);
                 rasterLayerMap[rId] = overlayLayer;
+                
+                // HÀM NÀY BỊ THIẾU TRONG CODE CỦA BẠN NÊN GÂY LỖI
                 addRasterToSidebar(rId, file.name);
                 map.fitBounds(bounds);
 
-                // 4. Lưu Metadata vào Database Supabase để "ghi nhớ" vĩnh viễn
+                // 4. Lưu Metadata vào Database Supabase
                 const { data: dbData, error: dbError } = await supabaseClient
                     .from('web_map_rasters')
                     .insert([{
@@ -189,36 +192,154 @@ rasterInput.addEventListener('change', async function(e) {
 
                 if (dbError) throw dbError;
                 
-                // Gắn ID thật từ DB vào thẻ Sidebar để xóa cho đúng
+                // Gắn ID thật từ DB vào thẻ Sidebar
                 const itemEl = document.getElementById(`raster-item-${rId}`);
                 if (itemEl) itemEl.dataset.dbId = dbData[0].id;
             }
-            if (!rasterInfo.innerHTML.includes('❌ Lỗi')) {
-            rasterInfo.innerHTML = `<div style="color:green">✅ Hoàn thành!</div>`;
-            setTimeout(() => rasterInfo.innerHTML = '', 4000);
-        }
+
         } catch (err) {
             console.error("Lỗi Cloud Raster:", err);
-            rasterInfo.innerHTML += `<div style="color:red">❌ Lỗi file ${file.name}: ${err.message}</div>`;
+            rasterInfo.innerHTML += `<div style="color:red; margin-top:5px;">❌ Lỗi file ${file.name}: ${err.message}</div>`;
+            hasError = true;
         }
     }
-    rasterInfo.innerHTML = `<div style="color:green">✅ Hoàn thành!</div>`;
+    
+    if (!hasError) {
+        rasterInfo.innerHTML = `<div style="color:green">✅ Hoàn thành!</div>`;
+        setTimeout(() => rasterInfo.innerHTML = '', 4000);
+    }
     this.value = ''; 
 });
 
-// Sửa lại hàm xóa để xóa trên Cloud
+// ===================================================================
+// GIAO DIỆN QUẢN LÝ RASTER (Kéo thả, Ẩn hiện, Đổi tên)
+// ===================================================================
+
+function addRasterToSidebar(id, fileName) {
+    const container = document.getElementById('rasters-list');
+    const emptyMsg = container.querySelector('.empty-msg');
+    if (emptyMsg) emptyMsg.remove();
+
+    const item = document.createElement('div');
+    item.className = 'feature-item raster-item';
+    item.id = `raster-item-${id}`;
+    item.draggable = true; 
+    item.style.display = 'flex';
+    item.style.justifyContent = 'space-between';
+    item.style.alignItems = 'center';
+
+    item.innerHTML = `
+      <div style="display:flex; align-items:center; flex:1; overflow:hidden;">
+          <div class="raster-drag-handle" style="color: #cbd5e0; padding-right: 12px; cursor: grab;">
+            <i class="fa-solid fa-grip-vertical"></i>
+          </div>
+          <div class="feat-info" style="cursor:pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+            <i class="fa-solid fa-image" style="color:#38a169;"></i>
+            <span id="raster-name-${id}" style="font-weight: 500; font-size:0.85rem;">${fileName}</span>
+          </div>
+      </div>
+      <div class="feat-actions" style="display: flex; gap: 8px; align-items: center; padding-left: 8px;">
+        <input type="range" min="0" max="1" step="0.1" value="0.9" title="Độ trong suốt" style="width: 40px; cursor: pointer;" oninput="changeRasterOpacity(${id}, this.value)">
+        <button onclick="renameRasterLayer(${id})" title="Đổi tên" style="background:none; border:none; cursor:pointer; color:#3182ce;"><i class="fa-solid fa-pen"></i></button>
+        <button id="toggle-raster-${id}" onclick="toggleRasterLayer(${id})" title="Ẩn/Hiện" style="background:none; border:none; cursor:pointer; color:#4a5568;"><i class="fa-solid fa-eye"></i></button>
+        <button onclick="deleteRasterLayer(${id})" title="Xóa" style="background:none; border:none; cursor:pointer; color:#e53e3e;"><i class="fa-solid fa-times"></i></button>
+      </div>
+    `;
+
+    item.querySelector('.feat-info').addEventListener('click', () => {
+        const layer = rasterLayerMap[id];
+        if (layer && map.hasLayer(layer)) map.fitBounds(layer.getBounds());
+    });
+
+    item.addEventListener('dragstart', () => item.classList.add('dragging-raster'));
+    item.addEventListener('dragend', () => {
+        item.classList.remove('dragging-raster');
+        updateRasterZIndexOrder();
+    });
+
+    container.insertBefore(item, container.firstChild);
+    updateRasterZIndexOrder();
+}
+
+function changeRasterOpacity(id, value) {
+    if (rasterLayerMap[id]) rasterLayerMap[id].setOpacity(value);
+}
+
+function toggleRasterLayer(id) {
+    const layer = rasterLayerMap[id];
+    if (!layer) return;
+    const btn = document.getElementById(`toggle-raster-${id}`);
+    const icon = btn.querySelector('i');
+    
+    if (map.hasLayer(layer)) {
+        map.removeLayer(layer);
+        icon.classList.replace('fa-eye', 'fa-eye-slash');
+        btn.style.color = '#a0aec0';
+    } else {
+        map.addLayer(layer);
+        icon.classList.replace('fa-eye-slash', 'fa-eye');
+        btn.style.color = '#4a5568';
+        updateRasterZIndexOrder();
+    }
+}
+
+function renameRasterLayer(id) {
+    const nameSpan = document.getElementById(`raster-name-${id}`);
+    const newName = prompt("Đổi tên hiển thị lớp ảnh:", nameSpan.innerText);
+    if (newName && newName.trim()) nameSpan.innerText = newName.trim();
+}
+
 async function deleteRasterLayer(id) {
     if (!confirm('Xóa ảnh này vĩnh viễn?')) return;
     const item = document.getElementById(`raster-item-${id}`);
-    const dbId = item.dataset.dbId;
+    const dbId = item ? item.dataset.dbId : null;
 
     if (rasterLayerMap[id]) map.removeLayer(rasterLayerMap[id]);
+    delete rasterLayerMap[id];
     if (item) item.remove();
 
     if (dbId) {
-        // Xóa trong Database (File trong Storage bạn có thể giữ lại làm backup hoặc xóa thêm tùy ý)
-        await supabaseClient.from('web_map_rasters').delete().eq('id', dbId);
+        try {
+            await supabaseClient.from('web_map_rasters').delete().eq('id', dbId);
+        } catch (err) { console.error("Lỗi xóa DB:", err); }
     }
+
+    if (document.getElementById('rasters-list').children.length === 0) {
+        document.getElementById('rasters-list').innerHTML = '<p class="empty-msg">Chưa có ảnh nào</p>';
+    }
+}
+
+const rasterContainer = document.getElementById('rasters-list');
+if (rasterContainer) {
+    rasterContainer.addEventListener('dragover', e => {
+        e.preventDefault();
+        const afterElement = getRasterDragAfterElement(rasterContainer, e.clientY);
+        const draggable = document.querySelector('.dragging-raster');
+        if (draggable) {
+            if (afterElement == null) rasterContainer.appendChild(draggable);
+            else rasterContainer.insertBefore(draggable, afterElement);
+        }
+    });
+}
+
+function getRasterDragAfterElement(container, y) {
+    const elements = [...container.querySelectorAll('.raster-item:not(.dragging-raster)')];
+    return elements.reduce((closest, child) => {
+        const box = child.getBoundingClientRect();
+        const offset = y - box.top - box.height / 2;
+        if (offset < 0 && offset > closest.offset) return { offset: offset, element: child };
+        else return closest;
+    }, { offset: Number.NEGATIVE_INFINITY }).element;
+}
+
+function updateRasterZIndexOrder() {
+    const items = document.querySelectorAll('.raster-item');
+    const reversedItems = Array.from(items).reverse(); 
+    reversedItems.forEach((item, index) => {
+        const id = parseInt(item.id.replace('raster-item-', ''));
+        const layer = rasterLayerMap[id];
+        if (layer && layer.setZIndex) layer.setZIndex(100 + index); 
+    });
 }
 
 // ======================================================
