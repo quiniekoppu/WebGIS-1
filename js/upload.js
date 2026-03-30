@@ -142,40 +142,31 @@ rasterInput.addEventListener('change', async function(e) {
             const { data: urlData } = supabaseClient.storage.from('raster_files').getPublicUrl(`uploads/${fileName}`);
             const publicUrl = urlData.publicUrl;
 
-            // 3. Xử lý hiển thị trên bản đồ
+            // 3. Xử lý hiển thị trên bản đồ (Lấy dữ liệu từ file gốc đang tải lên để vẽ preview)
             let overlayLayer = null;
             let bounds = null;
 
             if (ext === 'tif' || ext === 'tiff') {
-                // --- ĐOẠN MỚI: DÙNG SUPABASE SDK ĐỂ LÁCH LUẬT CORS ---
-                // Cắt lấy đường dẫn gốc của file trong Storage
-                const filePath = r.file_url.split('/raster_files/')[1]; 
-                
-                // Dùng đường ống nội bộ của Supabase để tải dữ liệu nhị phân
-                const { data: fileBlob, error: downloadErr } = await supabaseClient.storage
-                    .from('raster_files')
-                    .download(filePath);
-                
-                if (downloadErr) throw new Error("Lỗi tải ngầm TIF: " + downloadErr.message);
-                
-                const arrayBuffer = await fileBlob.arrayBuffer();
-                // --- KẾT THÚC ĐOẠN LÁCH LUẬT ---
-
+                const arrayBuffer = await file.arrayBuffer(); // Đọc file gốc trên máy để vẽ nháp
                 const tiff = await GeoTIFF.fromArrayBuffer(arrayBuffer);
-                const image = await tiff.getImage();
+                const image = await tiff.getImage(); 
+                const bbox = image.getBoundingBox();
+                bounds = [[bbox[1], bbox[0]], [bbox[3], bbox[2]]];
+                
                 const rasters = await image.readRasters({ interleave: false });
                 const canvas = document.createElement('canvas');
                 canvas.width = image.getWidth(); canvas.height = image.getHeight();
                 const ctx = canvas.getContext('2d');
                 const imgData = ctx.createImageData(canvas.width, canvas.height);
-                for (let j = 0; j < canvas.width * canvas.height; j++) {
-                    imgData.data[j*4] = rasters[0][j]; imgData.data[j*4+1] = rasters[1][j];
-                    imgData.data[j*4+2] = rasters[2][j]; imgData.data[j*4+3] = 255;
+                if (rasters.length >= 3) {
+                    for (let j = 0; j < canvas.width * canvas.height; j++) {
+                        imgData.data[j*4] = rasters[0][j]; imgData.data[j*4+1] = rasters[1][j];
+                        imgData.data[j*4+2] = rasters[2][j]; imgData.data[j*4+3] = 255;
+                    }
                 }
                 ctx.putImageData(imgData, 0, 0);
-                overlayLayer = L.imageOverlay(canvas.toDataURL(), r.bounds, { opacity: 0.9, interactive: true });
+                overlayLayer = L.imageOverlay(canvas.toDataURL(), bounds, { opacity: 0.9, interactive: true });
             } else {
-                
                 bounds = map.getBounds();
                 overlayLayer = L.imageOverlay(publicUrl, bounds, { opacity: 0.9, interactive: true });
             }
@@ -184,7 +175,6 @@ rasterInput.addEventListener('change', async function(e) {
                 overlayLayer.addTo(map);
                 rasterLayerMap[rId] = overlayLayer;
                 
-                // HÀM NÀY BỊ THIẾU TRONG CODE CỦA BẠN NÊN GÂY LỖI
                 addRasterToSidebar(rId, file.name);
                 map.fitBounds(bounds);
 
@@ -447,13 +437,19 @@ async function loadSavedRasters() {
             const ext = (r.extension || '').toLowerCase();
 
             if (ext === 'tif' || ext === 'tiff') {
-                // TIF cần fetch lại dữ liệu nhị phân để render canvas
-                const res = await fetch(r.file_url);
+                // --- DÙNG SUPABASE SDK ĐỂ TẢI NGẦM TRÁNH CORS ---
+                const filePath = r.file_url.split('/raster_files/')[1]; 
                 
-                // Nếu bị Supabase chặn, nó sẽ báo lỗi ở đây
-                if (!res.ok) throw new Error("Bị Supabase chặn quyền tải file TIF ngầm (Lỗi CORS) hoặc file đã bị xóa.");
+                const { data: fileBlob, error: downloadErr } = await supabaseClient.storage
+                    .from('raster_files')
+                    .download(filePath);
                 
-                const arrayBuffer = await res.arrayBuffer();
+                if (downloadErr) {
+                    console.error(`❌ Lỗi tải ngầm TIF (${r.name}):`, downloadErr.message);
+                    continue; 
+                }
+                
+                const arrayBuffer = await fileBlob.arrayBuffer();
                 const tiff = await GeoTIFF.fromArrayBuffer(arrayBuffer);
                 const image = await tiff.getImage();
                 const rasters = await image.readRasters({ interleave: false });
@@ -477,18 +473,16 @@ async function loadSavedRasters() {
                 rasterLayerMap[rId] = overlayLayer;
                 addRasterToSidebar(rId, r.name);
                 
-                // Nạp lại DB ID để chức năng xóa hoạt động bình thường
                 const itemEl = document.getElementById(`raster-item-${rId}`);
                 if (itemEl) itemEl.dataset.dbId = r.id;
             }
         }
     } catch (err) {
         console.error("❌ Lỗi khi khôi phục Raster lúc F5:", err);
-        // HIỆN THÔNG BÁO LỖI LÊN MÀN HÌNH ĐỂ DỄ BẮT BỆNH
-        alert("Có lỗi khi khôi phục ảnh TIF: " + err.message);
     }
 }
 
+// Gọi hàm có độ trễ 500ms để đảm bảo bản đồ đã sẵn sàng
 setTimeout(() => {
     loadSavedRasters();
 }, 500);
